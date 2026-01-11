@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { getDefaultKey } from './store';
 
 // Helper to get client
@@ -30,7 +30,7 @@ export const generateStoryboardContent = async (
     3. 描述必须具有画面感、细节丰富，可直接用于 AI 绘画。
   `;
 
-  const responseSchema: Schema = {
+  const responseSchema = {
     type: Type.OBJECT,
     properties: {
       cn: {
@@ -106,7 +106,7 @@ export const generate3x3GridInstructions = async (
     4. 不要添加前缀文本，只需要 1-9 的编号列表。
   `;
 
-  const responseSchema: Schema = {
+  const responseSchema = {
     type: Type.OBJECT,
     properties: {
       cn_instructions: { type: Type.STRING },
