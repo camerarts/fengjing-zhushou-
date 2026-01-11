@@ -1,0 +1,5 @@
+{
+  "name": "分镜助手",
+  "description": "专为视频创作者打造的专业工具，使用 AI 生成详细分镜脚本与 3x3 网格提示词。",
+  "requestFramePermissions": []
+}
