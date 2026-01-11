@@ -2,24 +2,34 @@ import React, { useEffect, useState } from 'react';
 import { getApiKeys, saveApiKey, deleteApiKey } from '../services/store';
 import { KeyItem } from '../types';
 import { getCurrentUser } from '../services/store';
-import { Plus, Trash2, CheckCircle, AlertTriangle, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { Plus, Trash2, CheckCircle, AlertTriangle, Eye, EyeOff, ShieldCheck, Loader2 } from 'lucide-react';
 
 const KeyManagement: React.FC = () => {
   const [keys, setKeys] = useState<KeyItem[]>([]);
   const [newLabel, setNewLabel] = useState('');
   const [newKey, setNewKey] = useState('');
   const [showKeyInput, setShowKeyInput] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const fetchKeys = async () => {
+    setLoading(true);
+    const data = await getApiKeys();
+    setKeys(data);
+    setLoading(false);
+  };
 
   useEffect(() => {
-    setKeys(getApiKeys());
+    fetchKeys();
   }, []);
 
-  const handleAddKey = (e: React.FormEvent) => {
+  const handleAddKey = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLabel || !newKey) return;
     
     const user = getCurrentUser();
     if (!user) return;
+    setSaving(true);
 
     const newItem: KeyItem = {
       id: Date.now().toString(),
@@ -30,23 +40,24 @@ const KeyManagement: React.FC = () => {
       createdAt: Date.now()
     };
     
-    saveApiKey(newItem);
-    setKeys(getApiKeys());
+    await saveApiKey(newItem);
+    await fetchKeys();
     setNewLabel('');
     setNewKey('');
+    setSaving(false);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (window.confirm("确认删除此 API 密钥？")) {
-      deleteApiKey(id);
-      setKeys(getApiKeys());
+      await deleteApiKey(id);
+      fetchKeys();
     }
   };
 
-  const handleSetDefault = (keyItem: KeyItem) => {
+  const handleSetDefault = async (keyItem: KeyItem) => {
     const updated = { ...keyItem, isDefault: true };
-    saveApiKey(updated);
-    setKeys(getApiKeys());
+    await saveApiKey(updated);
+    fetchKeys();
   };
 
   return (
@@ -65,7 +76,7 @@ const KeyManagement: React.FC = () => {
         </div>
         <div className="text-sm text-amber-100/80 leading-relaxed">
           <p className="font-bold text-amber-500 mb-1 text-base">安全提示</p>
-          您的密钥仅存储在本地浏览器的 LocalStorage 中。请勿在公共计算机上使用。
+          您的密钥现在存储在 Cloudflare D1 数据库中。
           应用程序将优先使用您的默认密钥。
         </div>
       </div>
@@ -113,10 +124,11 @@ const KeyManagement: React.FC = () => {
                     </div>
                     <button 
                         type="submit"
-                        className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-500 text-white py-3 rounded-xl text-sm font-bold transition-all shadow-lg shadow-brand-900/20 hover:shadow-brand-500/20 border border-white/10"
+                        disabled={saving}
+                        className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-500 text-white py-3 rounded-xl text-sm font-bold transition-all shadow-lg shadow-brand-900/20 hover:shadow-brand-500/20 border border-white/10 disabled:opacity-50"
                     >
-                        <Plus size={18} />
-                        安全保存
+                        {saving ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
+                        {saving ? '保存中...' : '安全保存'}
                     </button>
                 </div>
             </form>
@@ -124,48 +136,54 @@ const KeyManagement: React.FC = () => {
 
           {/* Key List */}
           <div className="lg:col-span-2 space-y-4">
-            {keys.map(k => (
-            <div key={k.id} className="group bg-slate-800/40 backdrop-blur-lg border border-white/5 hover:border-white/10 rounded-2xl p-5 flex items-center justify-between transition-all hover:bg-slate-800/60 shadow-lg">
-                <div className="flex items-center gap-5">
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner transition-colors ${k.isDefault ? 'bg-brand-500/20 text-brand-400 border border-brand-500/20' : 'bg-slate-900/50 text-slate-600 border border-white/5'}`}>
-                        <KeyItemIcon active={k.isDefault} />
-                    </div>
-                    <div>
-                        <div className="flex items-center gap-3">
-                        <span className="font-bold text-white text-lg">{k.label}</span>
-                        {k.isDefault && (
-                            <span className="text-[10px] font-bold bg-brand-500/20 text-brand-300 px-2 py-0.5 rounded-full border border-brand-500/20 uppercase tracking-wide">使用中</span>
-                        )}
+            {loading ? (
+               <div className="flex items-center justify-center py-10 text-slate-500"><Loader2 className="animate-spin mr-2"/> 加载密钥中...</div>
+            ) : (
+                <>
+                {keys.map(k => (
+                <div key={k.id} className="group bg-slate-800/40 backdrop-blur-lg border border-white/5 hover:border-white/10 rounded-2xl p-5 flex items-center justify-between transition-all hover:bg-slate-800/60 shadow-lg">
+                    <div className="flex items-center gap-5">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner transition-colors ${k.isDefault ? 'bg-brand-500/20 text-brand-400 border border-brand-500/20' : 'bg-slate-900/50 text-slate-600 border border-white/5'}`}>
+                            <KeyItemIcon active={k.isDefault} />
                         </div>
-                        <div className="text-xs text-slate-500 font-mono mt-1 bg-black/20 px-2 py-1 rounded inline-block">
-                        {k.key.substring(0, 8)} •••• {k.key.substring(k.key.length - 4)}
+                        <div>
+                            <div className="flex items-center gap-3">
+                            <span className="font-bold text-white text-lg">{k.label}</span>
+                            {k.isDefault && (
+                                <span className="text-[10px] font-bold bg-brand-500/20 text-brand-300 px-2 py-0.5 rounded-full border border-brand-500/20 uppercase tracking-wide">使用中</span>
+                            )}
+                            </div>
+                            <div className="text-xs text-slate-500 font-mono mt-1 bg-black/20 px-2 py-1 rounded inline-block">
+                            {k.key.substring(0, 8)} •••• {k.key.substring(k.key.length - 4)}
+                            </div>
                         </div>
                     </div>
-                </div>
-                
-                <div className="flex items-center gap-3">
-                {!k.isDefault && (
+                    
+                    <div className="flex items-center gap-3">
+                    {!k.isDefault && (
+                        <button 
+                        onClick={() => handleSetDefault(k)}
+                        className="text-xs font-semibold text-slate-400 hover:text-white px-4 py-2 rounded-xl hover:bg-white/5 border border-transparent hover:border-white/10 transition-all"
+                        >
+                        设为默认
+                        </button>
+                    )}
                     <button 
-                    onClick={() => handleSetDefault(k)}
-                    className="text-xs font-semibold text-slate-400 hover:text-white px-4 py-2 rounded-xl hover:bg-white/5 border border-transparent hover:border-white/10 transition-all"
+                        onClick={() => handleDelete(k.id)}
+                        className="p-2.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-colors"
                     >
-                    设为默认
+                        <Trash2 size={18} />
                     </button>
-                )}
-                <button 
-                    onClick={() => handleDelete(k.id)}
-                    className="p-2.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-colors"
-                >
-                    <Trash2 size={18} />
-                </button>
+                    </div>
                 </div>
-            </div>
-            ))}
-            
-            {keys.length === 0 && (
-            <div className="h-48 flex flex-col items-center justify-center text-slate-500 border-2 border-dashed border-slate-800/50 rounded-3xl bg-slate-900/20">
-                <p>未找到密钥。请添加一个以开始生成。</p>
-            </div>
+                ))}
+                
+                {keys.length === 0 && (
+                <div className="h-48 flex flex-col items-center justify-center text-slate-500 border-2 border-dashed border-slate-800/50 rounded-3xl bg-slate-900/20">
+                    <p>未找到密钥。请添加一个以开始生成。</p>
+                </div>
+                )}
+                </>
             )}
           </div>
       </div>

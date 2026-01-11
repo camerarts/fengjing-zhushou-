@@ -2,9 +2,11 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { getDefaultKey } from './store';
 
 // Helper to get client
-const getClient = (apiKey?: string) => {
+const getClient = async (apiKey?: string) => {
   // Priority: 1. Passed key, 2. Stored User Key, 3. Env Key (fallback for devs)
-  const key = apiKey || getDefaultKey() || process.env.API_KEY;
+  // NOTE: getDefaultKey is now async
+  const storedKey = await getDefaultKey();
+  const key = apiKey || storedKey || process.env.API_KEY;
   if (!key) {
     throw new Error("未找到 API 密钥。请在“密钥管理”中添加一个。");
   }
@@ -16,7 +18,7 @@ export const generateStoryboardContent = async (
   systemPrompt: string,
   userApiKey?: string
 ): Promise<{ cn: string[]; en: string[] }> => {
-  const client = getClient(userApiKey);
+  const client = await getClient(userApiKey);
 
   const prompt = `
     基于以下创意方案，生成 9 个独特的分镜画面描述。
@@ -96,7 +98,7 @@ export const generate3x3GridInstructions = async (
   framesEn: string[],
   userApiKey?: string
 ): Promise<{ cn: string; en: string }> => {
-  const client = getClient(userApiKey);
+  const client = await getClient(userApiKey);
   
   const prompt = `
     我有 9 个分镜画面描述。我需要将它们格式化为用于 3x3 网格图像生成的指令列表。

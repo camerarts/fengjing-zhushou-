@@ -1,28 +1,41 @@
 import React, { useEffect, useState } from 'react';
 import { getSystemPrompt, saveSystemPrompt } from '../services/store';
 import { DEFAULT_SYSTEM_PROMPT } from '../constants';
-import { RotateCcw, Save, Sparkles } from 'lucide-react';
+import { RotateCcw, Save, Sparkles, Loader2 } from 'lucide-react';
 
 const PromptManagement: React.FC = () => {
   const [content, setContent] = useState('');
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setContent(getSystemPrompt());
+    getSystemPrompt().then(data => {
+      setContent(data);
+      setLoading(false);
+    });
   }, []);
 
-  const handleSave = () => {
-    saveSystemPrompt('storyboard_generate', content);
+  const handleSave = async () => {
+    setSaving(true);
+    await saveSystemPrompt('storyboard_generate', content);
+    setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const handleReset = () => {
+  const handleReset = async () => {
     if(window.confirm("重置为默认提示词？")) {
+      setSaving(true);
       setContent(DEFAULT_SYSTEM_PROMPT);
-      saveSystemPrompt('storyboard_generate', DEFAULT_SYSTEM_PROMPT);
+      await saveSystemPrompt('storyboard_generate', DEFAULT_SYSTEM_PROMPT);
+      setSaving(false);
     }
   };
+
+  if (loading) {
+     return <div className="flex h-full items-center justify-center text-slate-500"><Loader2 className="animate-spin mr-2"/> 加载配置...</div>;
+  }
 
   return (
     <div className="max-w-5xl mx-auto h-full flex flex-col pb-6">
@@ -41,21 +54,23 @@ const PromptManagement: React.FC = () => {
            <div className="flex gap-3">
              <button 
                onClick={handleReset}
-               className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-slate-400 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10 rounded-xl transition-all"
+               disabled={saving}
+               className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-slate-400 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10 rounded-xl transition-all disabled:opacity-50"
              >
                <RotateCcw size={14} />
                重置
              </button>
              <button 
                onClick={handleSave}
+               disabled={saving}
                className={`flex items-center gap-2 px-6 py-2 text-sm font-bold text-white rounded-xl transition-all shadow-lg ${
                  saved 
                    ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
                    : 'bg-brand-600 hover:bg-brand-500 border border-white/10 shadow-brand-900/20'
-               }`}
+               } disabled:opacity-50 disabled:cursor-not-allowed`}
              >
-               <Save size={16} />
-               {saved ? '保存成功' : '保存修改'}
+               {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+               {saving ? '保存中' : (saved ? '保存成功' : '保存修改')}
              </button>
            </div>
         </div>
@@ -75,7 +90,7 @@ const PromptManagement: React.FC = () => {
         {/* Footer info */}
         <div className="px-6 py-3 bg-black/20 border-t border-white/5 text-xs text-slate-500 flex justify-between">
              <span>模块: storyboard_generate</span>
-             <span>最后更新: 刚刚</span>
+             <span>存储: Cloudflare D1</span>
         </div>
       </div>
     </div>

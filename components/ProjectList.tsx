@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { getProjects, deleteProject } from '../services/store';
 import { Project } from '../types';
-import { Clock, FolderOpen, Trash2, Search, Plus } from 'lucide-react';
+import { Clock, FolderOpen, Trash2, Search, Plus, Loader2 } from 'lucide-react';
 
 interface ProjectListProps {
   onOpenProject: (id: string) => void;
@@ -11,20 +11,37 @@ interface ProjectListProps {
 const ProjectList: React.FC<ProjectListProps> = ({ onOpenProject, onCreateProject }) => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const fetchProjects = async () => {
+    setLoading(true);
+    const data = await getProjects();
+    setProjects(data);
+    setLoading(false);
+  };
 
   useEffect(() => {
-    setProjects(getProjects());
+    fetchProjects();
   }, []);
 
-  const handleDelete = (e: React.MouseEvent, id: string) => {
+  const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     if (window.confirm("确认删除此项目？")) {
-      deleteProject(id);
-      setProjects(getProjects());
+      await deleteProject(id);
+      fetchProjects();
     }
   };
 
   const filtered = projects.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+
+  if (loading && projects.length === 0) {
+    return (
+      <div className="h-full flex items-center justify-center text-slate-500">
+        <Loader2 className="animate-spin mb-2" />
+        <span className="ml-2">加载项目中...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full flex flex-col">

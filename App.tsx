@@ -17,6 +17,7 @@ const App: React.FC = () => {
   // Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
     // Check auth
@@ -40,14 +41,15 @@ const App: React.FC = () => {
     setIsCreateModalOpen(true);
   };
 
-  const handleCreateProject = (e: React.FormEvent) => {
+  const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newProjectName && newProjectName.length >= 2 && newProjectName.length <= 30) {
       const user = getCurrentUser();
       if (!user) return;
       
+      setIsCreating(true);
       const newId = Date.now().toString();
-      saveProject({
+      await saveProject({
         id: newId,
         userId: user.id,
         name: newProjectName,
@@ -59,6 +61,7 @@ const App: React.FC = () => {
         createdAt: Date.now(),
         updatedAt: Date.now()
       });
+      setIsCreating(false);
       
       setActiveProjectId(newId);
       setRoute(AppRoute.PROJECT_WORKSPACE);
@@ -122,6 +125,7 @@ const App: React.FC = () => {
               required
               minLength={2}
               maxLength={30}
+              disabled={isCreating}
             />
             <p className="text-[10px] text-slate-500 mt-2">长度需在 2 到 30 个字符之间。</p>
           </div>
@@ -130,14 +134,16 @@ const App: React.FC = () => {
               type="button" 
               onClick={() => setIsCreateModalOpen(false)}
               className="flex-1 py-3 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors font-medium text-sm"
+              disabled={isCreating}
             >
               取消
             </button>
             <button 
               type="submit" 
-              className="flex-1 py-3 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-bold text-sm shadow-lg shadow-brand-900/20 transition-all"
+              disabled={isCreating}
+              className="flex-1 py-3 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-bold text-sm shadow-lg shadow-brand-900/20 transition-all disabled:opacity-50"
             >
-              创建
+              {isCreating ? '创建中...' : '创建'}
             </button>
           </div>
         </form>

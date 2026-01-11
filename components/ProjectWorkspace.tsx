@@ -3,7 +3,7 @@ import { Project } from '../types';
 import { getProjectById, saveProject, getSystemPrompt } from '../services/store';
 import { generateStoryboardContent, generate3x3GridInstructions } from '../services/geminiService';
 import { GRID_PREFIX_CN, GRID_PREFIX_EN } from '../constants';
-import { Save, Zap, Grid, Copy, Check, Loader2, Edit2, RotateCw } from 'lucide-react';
+import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw } from 'lucide-react';
 
 interface WorkspaceProps {
   projectId: string;
@@ -13,6 +13,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState<string>(''); // 'storyboard' | 'grid'
+  const [saving, setSaving] = useState(false);
   
   // Local state for edits
   const [plan, setPlan] = useState('');
@@ -24,28 +25,34 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
   const [copied, setCopied] = useState<string | null>(null);
 
   useEffect(() => {
-    const p = getProjectById(projectId);
-    if (p) {
-      setProject(p);
-      setPlan(p.creativePlan || '');
-      setSbCn(p.storyboardZh || []);
-      setSbEn(p.storyboardEn || []);
-      setGridCn(p.grid3x3Zh || '');
-      setGridEn(p.grid3x3En || '');
-    }
+    setProject(null); // Clear previous
+    getProjectById(projectId).then(p => {
+        if (p) {
+            setProject(p);
+            setPlan(p.creativePlan || '');
+            setSbCn(p.storyboardZh || []);
+            setSbEn(p.storyboardEn || []);
+            setGridCn(p.grid3x3Zh || '');
+            setGridEn(p.grid3x3En || '');
+        }
+    });
   }, [projectId]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!project) return;
+    setSaving(true);
     const updated: Project = {
       ...project,
       creativePlan: plan,
       storyboardZh: sbCn,
       storyboardEn: sbEn,
       grid3x3Zh: gridCn,
-      grid3x3En: gridEn
+      grid3x3En: gridEn,
+      updatedAt: Date.now()
     };
-    saveProject(updated);
+    await saveProject(updated);
+    setProject(updated);
+    setSaving(false);
   };
 
   const handleCopy = (text: string, id: string) => {
@@ -60,14 +67,16 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
     setLoadingStep('storyboard');
     
     try {
-      const systemPrompt = getSystemPrompt();
+      const systemPrompt = await getSystemPrompt();
       const res = await generateStoryboardContent(plan, systemPrompt);
       setSbCn(res.cn);
       setSbEn(res.en);
       
       // Auto save after gen
       if(project) {
-        saveProject({ ...project, creativePlan: plan, storyboardZh: res.cn, storyboardEn: res.en });
+        const updated = { ...project, creativePlan: plan, storyboardZh: res.cn, storyboardEn: res.en, updatedAt: Date.now() };
+        await saveProject(updated);
+        setProject(updated);
       }
     } catch (e: any) {
       alert("生成失败：" + e.message);
@@ -92,7 +101,9 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
       setGridEn(finalEn);
 
       if(project) {
-        saveProject({ ...project, grid3x3Zh: finalCn, grid3x3En: finalEn });
+        const updated = { ...project, grid3x3Zh: finalCn, grid3x3En: finalEn, updatedAt: Date.now() };
+        await saveProject(updated);
+        setProject(updated);
       }
 
     } catch (e: any) {
@@ -103,7 +114,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
     }
   };
 
-  if (!project) return <div className="p-8 text-center text-slate-400">正在加载项目数据...</div>;
+  if (!project) return <div className="p-8 text-center text-slate-400 flex items-center justify-center h-full"><Loader2 className="animate-spin mr-2"/>正在加载项目数据...</div>;
 
   return (
     <div className="h-full flex flex-col gap-6 pb-6">
@@ -115,10 +126,11 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
         </div>
         <button 
           onClick={handleSave}
-          className="group flex items-center gap-2 bg-slate-800/50 hover:bg-slate-700/80 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all border border-white/10 shadow-lg hover:shadow-xl"
+          disabled={saving}
+          className="group flex items-center gap-2 bg-slate-800/50 hover:bg-slate-700/80 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all border border-white/10 shadow-lg hover:shadow-xl disabled:opacity-50"
         >
-          <Save size={16} className="text-slate-300 group-hover:text-white transition-colors" />
-          保存工作区
+          {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} className="text-slate-300 group-hover:text-white transition-colors" />}
+          {saving ? '保存中...' : '保存工作区'}
         </button>
       </div>
 
