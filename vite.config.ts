@@ -5,12 +5,11 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: 'dist', // Standard output directory for Cloudflare Pages
+    outDir: 'dist',
   },
   define: {
-    // Correctly expose API_KEY if set in Cloudflare dashboard
-    'process.env.API_KEY': JSON.stringify(process.env.API_KEY),
-    // Prevent crash on other process.env usage in client-side code
-    'process.env': {} 
+    // Replaces process.env.API_KEY with the actual string value during build
+    // If not set, defaults to empty string to prevent "process is not defined" error in browser
+    'process.env.API_KEY': JSON.stringify(process.env.API_KEY || '')
   }
 });
