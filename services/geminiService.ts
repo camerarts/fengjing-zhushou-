@@ -85,7 +85,7 @@ export const generateStoryboardContent = async (
   } catch (error: any) {
     console.error("Gemini Storyboard Generation Error:", error);
     if (error.message?.includes("403") || error.message?.includes("API_KEY")) {
-       throw new Error("API 密钥无效或无访问权限。请检查您的密钥。");
+       throw new Error("API 密钥无效或无访问权限。请检查您的密钥配置。");
     }
     throw error;
   }
