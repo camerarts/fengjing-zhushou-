@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: 'dist',
+    emptyOutDir: true,
   },
   define: {
     // Replaces process.env.API_KEY with the actual string value during build

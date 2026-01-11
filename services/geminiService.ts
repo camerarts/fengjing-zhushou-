@@ -30,6 +30,7 @@ export const generateStoryboardContent = async (
     3. 描述必须具有画面感、细节丰富，可直接用于 AI 绘画。
   `;
 
+  // Define schema using Type enum from the SDK
   const responseSchema = {
     type: Type.OBJECT,
     properties: {
@@ -62,13 +63,20 @@ export const generateStoryboardContent = async (
     const text = response.text;
     if (!text) throw new Error("Gemini 返回内容为空");
     
-    const json = JSON.parse(text);
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch (e) {
+      console.error("JSON Parse Error", text);
+      throw new Error("模型返回的不是有效的 JSON 格式");
+    }
+
     // Validation
     if (!Array.isArray(json.cn) || !Array.isArray(json.en) || json.cn.length === 0) {
-       throw new Error("模型返回格式无效");
+       throw new Error("模型返回格式无效，缺少数组数据");
     }
     
-    // Ensure 9 frames (trim or pad if necessary, though model should obey)
+    // Ensure 9 frames
     return {
       cn: json.cn.slice(0, 9),
       en: json.en.slice(0, 9)
@@ -76,9 +84,8 @@ export const generateStoryboardContent = async (
 
   } catch (error: any) {
     console.error("Gemini Storyboard Generation Error:", error);
-    // Simple error mapping
     if (error.message?.includes("403") || error.message?.includes("API_KEY")) {
-       throw new Error("API 密钥无效或无访问权限。");
+       throw new Error("API 密钥无效或无访问权限。请检查您的密钥。");
     }
     throw error;
   }
@@ -91,8 +98,6 @@ export const generate3x3GridInstructions = async (
 ): Promise<{ cn: string; en: string }> => {
   const client = getClient(userApiKey);
   
-  // We want the model to refine the 9 descriptions into short, punchy instructions
-  // suitable for the grid prompt format.
   const prompt = `
     我有 9 个分镜画面描述。我需要将它们格式化为用于 3x3 网格图像生成的指令列表。
     
