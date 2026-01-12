@@ -48,24 +48,30 @@ const App: React.FC = () => {
       if (!user) return;
       
       setIsCreating(true);
-      const newId = Date.now().toString();
-      await saveProject({
-        id: newId,
-        userId: user.id,
-        name: newProjectName,
-        creativePlan: '',
-        storyboardZh: [],
-        storyboardEn: [],
-        grid3x3Zh: '',
-        grid3x3En: '',
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      });
-      setIsCreating(false);
-      
-      setActiveProjectId(newId);
-      setRoute(AppRoute.PROJECT_WORKSPACE);
-      setIsCreateModalOpen(false);
+      try {
+        const newId = Date.now().toString();
+        await saveProject({
+          id: newId,
+          userId: user.id,
+          name: newProjectName,
+          creativePlan: '',
+          storyboardZh: [],
+          storyboardEn: [],
+          grid3x3Zh: '',
+          grid3x3En: '',
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        });
+        
+        setIsCreating(false);
+        setActiveProjectId(newId);
+        setRoute(AppRoute.PROJECT_WORKSPACE);
+        setIsCreateModalOpen(false);
+      } catch (error: any) {
+        console.error("Create project failed:", error);
+        setIsCreating(false);
+        alert(`创建项目失败：${error.message}\n\n如果您在本地运行，请确保使用 Cloudflare Wrangler 启动环境以支持后端 API。\n参考命令: npx wrangler pages dev --d1 DB=storyboard-db -- npm run dev`);
+      }
     } else {
       // Optional: Add inline validation error state
     }
