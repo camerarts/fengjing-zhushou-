@@ -9,7 +9,7 @@ import {
   Video
 } from 'lucide-react';
 import { AppRoute } from '../types';
-import { getCurrentUser, logout } from '../services/store';
+import { logout } from '../services/store';
 
 interface LayoutProps {
   currentRoute: AppRoute;
@@ -49,8 +49,6 @@ const Layout: React.FC<LayoutProps> = ({
   children,
   onCreateProject
 }) => {
-  const user = getCurrentUser();
-
   const handleLogout = () => {
     logout();
     onNavigate(AppRoute.LANDING);
@@ -111,14 +109,6 @@ const Layout: React.FC<LayoutProps> = ({
 
             {/* Footer */}
             <div className="p-4 border-t border-white/5 bg-black/10 flex flex-col items-center gap-3">
-                <div className="flex flex-col items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-700 to-slate-800 border border-white/10 flex items-center justify-center text-xs font-bold text-white shadow-inner">
-                    {user?.name.charAt(0)}
-                    </div>
-                    <div className="text-center w-full overflow-hidden px-1">
-                       <p className="text-xs font-medium text-white truncate max-w-[100px]">{user?.name}</p>
-                    </div>
-                </div>
                 <button 
                     onClick={handleLogout}
                     className="w-full flex items-center justify-center gap-2 px-2 py-2 text-xs font-medium text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"

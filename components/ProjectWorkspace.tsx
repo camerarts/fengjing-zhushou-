@@ -157,8 +157,8 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
         onClick={(e) => { e.stopPropagation(); handleStepClick(stepId); }}
         className={`relative group flex flex-col items-center text-center p-6 w-56 rounded-3xl border transition-all duration-300 cursor-pointer shadow-2xl
           ${isActive 
-            ? 'bg-slate-800 border-brand-500 ring-2 ring-brand-500/20 shadow-[0_0_50px_rgba(14,165,233,0.15)] z-10 scale-105' 
-            : 'bg-slate-900/80 backdrop-blur-md border-white/10 text-slate-400 hover:border-white/20 hover:bg-slate-800 hover:-translate-y-1'
+            ? 'bg-slate-800 border-brand-500 ring-2 ring-brand-500/20 shadow-[0_0_50px_rgba(14,165,233,0.15)] z-20 scale-105' 
+            : 'bg-slate-900/80 backdrop-blur-md border-white/10 text-slate-400 hover:border-white/20 hover:bg-slate-800 hover:-translate-y-1 z-10'
           }`}
       >
         {/* Status Dot */}
@@ -187,7 +187,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
   );
 
   return (
-    <div className="h-full flex flex-col relative overflow-hidden bg-slate-950 font-sans" onClick={() => setIsPanelOpen(false)}>
+    <div className="h-full w-full relative overflow-hidden bg-slate-950 font-sans" onClick={() => setIsPanelOpen(false)}>
       
       {/* Background with Grid */}
       <div className="absolute inset-0 z-0 opacity-20 pointer-events-none" 
@@ -217,9 +217,9 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
         </div>
       </div>
 
-      {/* Main Canvas Area (Centered) */}
-      <div className={`flex-1 flex items-center justify-center transition-all duration-500 ease-in-out ${isPanelOpen ? 'md:mr-[500px] md:scale-90 lg:scale-100' : ''}`}>
-          <div className="flex items-center gap-2 animate-fade-in scale-75 md:scale-100">
+      {/* Main Canvas Area (Centered & Fixed at Bottom Layer) */}
+      <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+          <div className="flex items-center gap-2 animate-fade-in pointer-events-auto scale-75 md:scale-100">
             <CanvasNode 
                 id={1} 
                 stepId="input" 
@@ -249,10 +249,10 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
           </div>
       </div>
 
-      {/* Right Drawer Panel */}
+      {/* Right Drawer Panel (Overlay) */}
       <div 
         onClick={(e) => e.stopPropagation()} 
-        className={`absolute top-0 right-0 h-full w-full md:w-[500px] bg-slate-900/95 backdrop-blur-2xl border-l border-white/10 shadow-2xl transition-transform duration-500 ease-out z-30 flex flex-col
+        className={`absolute top-0 right-0 h-full w-full md:w-[500px] bg-slate-900/95 backdrop-blur-2xl border-l border-white/10 shadow-2xl transition-transform duration-500 ease-out z-40 flex flex-col
           ${isPanelOpen ? 'translate-x-0' : 'translate-x-full'}`}
       >
          {/* Panel Header */}
