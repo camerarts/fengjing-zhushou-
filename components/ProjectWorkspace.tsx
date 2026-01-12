@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Project } from '../types';
-import { getProjectById, saveProject, getSystemPrompt } from '../services/store';
+import { getProjectById, saveProject, getSystemPrompt, uploadImage } from '../services/store';
 import { generateStoryboardContent, generateImageContent } from '../services/geminiService';
 import { GRID_PREFIX_CN, GRID_PREFIX_EN, DEFAULT_NEGATIVE_PROMPT } from '../constants';
-import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, ChevronLeft, Maximize2, Minus, Plus as PlusIcon, RotateCcw, Film, LayoutGrid, Upload, Download, Scissors, Wand2 } from 'lucide-react';
+import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, ChevronLeft, Maximize2, Minus, Plus as PlusIcon, RotateCcw, Film, LayoutGrid, Upload, Download, Scissors, Wand2, Cloud } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 
 interface WorkspaceProps {
@@ -20,6 +20,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState<string>(''); 
   const [saving, setSaving] = useState(false);
+  const [uploadingStatus, setUploadingStatus] = useState<string | null>(null);
   
   // Navigation State
   const [activeStep, setActiveStep] = useState<Step>('input');
@@ -179,7 +180,6 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
     if (!gridEn && !plan) {
          return alert("无法生成图片：缺少网格指令或创意方案。");
     }
-    // Use Grid EN prompt if available, otherwise Creative Plan
     const promptToUse = gridEn || plan;
 
     setLoading(true);
@@ -187,20 +187,26 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
 
     try {
         const systemPrompt = await getSystemPrompt('negative_generate');
-        // Use default if empty (though store usually handles this, double check)
         const finalSystemPrompt = systemPrompt || DEFAULT_NEGATIVE_PROMPT;
         
+        // 1. Gen Image (Base64)
         const base64Image = await generateImageContent(promptToUse, finalSystemPrompt);
         
-        setNegativeImg(base64Image);
+        // 2. Upload to R2
+        setUploadingStatus("正在上传到云端存储...");
+        const imageUrl = await uploadImage(base64Image);
+        setUploadingStatus(null);
+        
+        setNegativeImg(imageUrl);
         
         if(project) {
-            const updated = { ...project, negativeImage: base64Image, updatedAt: Date.now() };
+            const updated = { ...project, negativeImage: imageUrl, updatedAt: Date.now() };
             await saveProject(updated);
             setProject(updated);
         }
     } catch (e: any) {
-        alert("图片生成失败：" + e.message);
+        alert("图片生成或上传失败：" + e.message);
+        setUploadingStatus(null);
     } finally {
         setLoading(false);
         setLoadingStep('');
@@ -210,14 +216,29 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+        setLoading(true);
+        setLoadingStep('negative'); // reuse spinner on negative step
+        setUploadingStatus("正在上传...");
+
         const reader = new FileReader();
         reader.onload = async (ev) => {
             const base64 = ev.target?.result as string;
-            setNegativeImg(base64);
-            if(project) {
-                const updated = { ...project, negativeImage: base64, updatedAt: Date.now() };
-                await saveProject(updated);
-                setProject(updated);
+            try {
+                // Upload to R2
+                const imageUrl = await uploadImage(base64);
+                setNegativeImg(imageUrl);
+                
+                if(project) {
+                    const updated = { ...project, negativeImage: imageUrl, updatedAt: Date.now() };
+                    await saveProject(updated);
+                    setProject(updated);
+                }
+            } catch (err: any) {
+                alert("图片上传失败：" + err.message);
+            } finally {
+                setLoading(false);
+                setLoadingStep('');
+                setUploadingStatus(null);
             }
         };
         reader.readAsDataURL(file);
@@ -231,12 +252,15 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
 
     try {
         const img = new Image();
+        img.crossOrigin = "Anonymous"; // Crucial for canvas export if image is from R2
         img.src = negativeImg;
         await img.decode();
 
         const pieceWidth = img.width / 3;
         const pieceHeight = img.height / 3;
-        const newSplits: string[] = [];
+        
+        // We need to collect all 9 blobs/base64 first
+        const splitBase64s: string[] = [];
 
         const canvas = document.createElement('canvas');
         canvas.width = pieceWidth;
@@ -249,22 +273,36 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                     ctx.clearRect(0, 0, pieceWidth, pieceHeight);
                     // Draw slice
                     ctx.drawImage(img, col * pieceWidth, row * pieceHeight, pieceWidth, pieceHeight, 0, 0, pieceWidth, pieceHeight);
-                    newSplits.push(canvas.toDataURL('image/jpeg', 0.95));
+                    splitBase64s.push(canvas.toDataURL('image/jpeg', 0.95));
                 }
             }
         }
-        setSplitImgs(newSplits);
+        
+        // Batch upload to R2
+        setUploadingStatus(`正在上传 9 张切片 (0/9)...`);
+        const uploadPromises = splitBase64s.map(async (b64, idx) => {
+             const url = await uploadImage(b64);
+             setUploadingStatus(`正在上传 9 张切片 (${idx + 1}/9)...`);
+             return url;
+        });
+
+        const newSplitUrls = await Promise.all(uploadPromises);
+        setUploadingStatus(null);
+
+        setSplitImgs(newSplitUrls);
         
         if(project) {
-            const updated = { ...project, splitImages: newSplits, updatedAt: Date.now() };
+            const updated = { ...project, splitImages: newSplitUrls, updatedAt: Date.now() };
             await saveProject(updated);
             setProject(updated);
         }
     } catch (e) {
-        alert("图片切分失败");
+        console.error(e);
+        alert("图片切分失败 (跨域问题或网络错误)");
     } finally {
         setLoading(false);
         setLoadingStep('');
+        setUploadingStatus(null);
     }
   };
 
@@ -540,6 +578,15 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
           ${isExpanded ? 'md:w-[840px]' : 'md:w-[420px]'}
         `}
       >
+         {/* Uploading Status Overlay in Panel */}
+         {uploadingStatus && (
+             <div className="absolute inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-center animate-fade-in">
+                 <Loader2 size={32} className="animate-spin text-brand-500 mb-3" />
+                 <p className="text-white font-bold">{uploadingStatus}</p>
+                 <p className="text-xs text-slate-400 mt-1">请勿关闭页面</p>
+             </div>
+         )}
+
          {/* Expand Toggle Handle */}
          <button
             onClick={(e) => {
@@ -751,7 +798,8 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             {activeStep === 'negative' && (
                 <div className="h-full flex flex-col animate-fade-in">
                     <p className="text-sm text-slate-400 mb-4">
-                        请上传使用上述提示词生成的 3x3 网格原图 (底片)，或使用 AI 直接生成。
+                        请上传使用上述提示词生成的 3x3 网格原图 (底片)，或使用 AI 直接生成。<br/>
+                        <span className="text-xs text-brand-400">图片将自动上传至 R2 云端存储。</span>
                     </p>
 
                     {/* Generate Button Row */}
@@ -783,14 +831,18 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
 
                         {negativeImg ? (
                             <div className="w-full h-full relative group">
-                                <img src={negativeImg} alt="Negative" className="w-full h-full object-contain" />
+                                {/* Use crossOrigin to allow canvas processing later */}
+                                <img src={negativeImg} crossOrigin="anonymous" alt="Negative" className="w-full h-full object-contain" />
                                 <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity gap-3">
                                     <button 
                                         onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
                                         className="bg-white text-black px-4 py-2 rounded-full font-bold text-sm hover:scale-105 transition-transform"
                                     >
-                                        本地上传
+                                        本地上传 (覆盖)
                                     </button>
+                                </div>
+                                <div className="absolute top-2 right-2 bg-black/50 backdrop-blur rounded px-2 py-1 text-[10px] text-white flex items-center gap-1">
+                                    <Cloud size={10} /> 已存云端
                                 </div>
                             </div>
                         ) : (
@@ -832,13 +884,15 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                             <div className="grid grid-cols-3 gap-3 pb-4">
                                 {splitImgs.map((img, i) => (
                                     <div key={i} className="relative group aspect-[9/16] bg-black/50 rounded-lg overflow-hidden border border-white/10">
-                                        <img src={img} alt={`Frame ${i+1}`} className="w-full h-full object-cover" />
+                                        <img src={img} crossOrigin="anonymous" alt={`Frame ${i+1}`} className="w-full h-full object-cover" />
                                         <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] font-mono px-1.5 rounded backdrop-blur-sm">
                                             #{i + 1}
                                         </div>
                                         <a 
                                             href={img} 
                                             download={`storyboard_${i+1}.jpg`}
+                                            target="_blank"
+                                            rel="noreferrer"
                                             className="absolute bottom-1 right-1 p-1.5 bg-white text-black rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110"
                                             title="下载图片"
                                         >
@@ -856,7 +910,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                         className="mt-4 w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl text-sm font-bold transition-all border border-white/10"
                     >
                         {loading ? <Loader2 size={16} className="animate-spin" /> : <RotateCw size={16} />}
-                        重新切分
+                        重新切分并上传
                     </button>
                 </div>
             )}

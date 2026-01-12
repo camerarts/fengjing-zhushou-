@@ -7,6 +7,12 @@ interface KVNamespace {
   list(options?: { prefix?: string; limit?: number; cursor?: string }): Promise<{ keys: { name: string; expiration?: number; metadata?: any }[]; list_complete: boolean; cursor?: string }>;
 }
 
+// Cloudflare R2 Bucket Type Definition
+interface R2Bucket {
+  put(key: string, value: ReadableStream | ArrayBuffer | string, options?: { httpMetadata?: { contentType?: string } }): Promise<any>;
+  get(key: string): Promise<any>;
+}
+
 interface EventContext<Env, P extends string, Data> {
   request: Request;
   functionPath: string;
@@ -24,6 +30,8 @@ type PagesFunction<Env = unknown, Params extends string = any, Data extends Reco
 
 interface Env {
   KV: KVNamespace;
+  BUCKET: R2Bucket;
+  R2_PUBLIC_URL: string; // Environment variable for the public domain (e.g., https://pub-xxx.r2.dev)
 }
 
 const corsHeaders = {
@@ -52,6 +60,16 @@ const errorResponse = (message: string, status = 500, traceId?: string) => {
   }, status);
 };
 
+// Helper to decode Base64 to Uint8Array
+function base64ToUint8Array(base64String: string) {
+  const binaryString = atob(base64String);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
   
@@ -75,6 +93,50 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const method = request.method;
 
   try {
+    // --- IMAGE UPLOAD (R2) ---
+    if (resource === 'upload' && method === 'POST') {
+      if (!env.BUCKET) {
+        return errorResponse("R2 Bucket binding (BUCKET) not found. Please configure R2 in Cloudflare Dashboard.", 500);
+      }
+      if (!env.R2_PUBLIC_URL) {
+        return errorResponse("R2_PUBLIC_URL environment variable is missing. Please set your R2 public domain.", 500);
+      }
+
+      const body: any = await request.json();
+      const imageDataUrl = body.image; // Expecting "data:image/png;base64,..."
+
+      if (!imageDataUrl || !imageDataUrl.startsWith('data:image')) {
+        return errorResponse("Invalid image data. Must be a Base64 Data URL.", 400);
+      }
+
+      // Parse Data URL
+      const matches = imageDataUrl.match(/^data:(image\/([a-zA-Z]+));base64,(.+)$/);
+      if (!matches || matches.length !== 4) {
+        return errorResponse("Invalid Data URL format.", 400);
+      }
+
+      const mimeType = matches[1]; // e.g., image/png
+      const extension = matches[2] === 'jpeg' ? 'jpg' : matches[2]; // e.g., png
+      const base64Data = matches[3];
+      
+      // Generate unique filename
+      const filename = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${extension}`;
+      const buffer = base64ToUint8Array(base64Data);
+
+      // Upload to R2
+      await env.BUCKET.put(filename, buffer, {
+        httpMetadata: { contentType: mimeType }
+      });
+
+      // Return Public URL
+      // Ensure R2_PUBLIC_URL doesn't have a trailing slash
+      const publicUrl = env.R2_PUBLIC_URL.replace(/\/$/, '');
+      return jsonResponse({ 
+        success: true, 
+        url: `${publicUrl}/${filename}` 
+      });
+    }
+
     // --- PROJECTS ---
     // Key format: project:<id>
     if (resource === 'projects') {

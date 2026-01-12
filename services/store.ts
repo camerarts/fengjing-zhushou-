@@ -62,8 +62,11 @@ class ApiError extends Error {
 
 // --- API Helpers ---
 async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  // 3.3 请求与超时：15秒强制超时
-  const TIMEOUT_MS = 15000;
+  // 3.3 请求与超时：15秒强制超时（上传图片可能需要更久，这里特例处理）
+  // 如果是上传接口，延长超时时间
+  const isUpload = endpoint.includes('upload');
+  const TIMEOUT_MS = isUpload ? 60000 : 15000;
+  
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -90,7 +93,7 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
     console.error(`[API Err] ${method} ${endpoint} - ${duration}ms`, e);
     
     if (e.name === 'AbortError') {
-      throw new ApiError("请求超时 (15s)，请检查网络连接。", 408);
+      throw new ApiError(`请求超时 (${TIMEOUT_MS/1000}s)，请检查网络连接。`, 408);
     }
     throw new ApiError("网络请求失败，无法连接到服务器。请检查后端服务是否运行。", 0);
   } finally {
@@ -134,6 +137,9 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
         if (errorMsg.includes('KV binding') || errorMsg.includes('KV namespace') || errorMsg.includes('wrangler.toml')) {
              errorMsg = "严重错误：KV 数据库绑定丢失。\n1. 请进入 Cloudflare Pages -> Settings -> Functions。\n2. 确保添加了 KV Namespace Binding。\n3. 变量名称(Variable name)必须完全一致为 'KV' (大写)。\n4. 设置完成后，请务必 Retry deployment (重新部署)。";
         }
+        if (errorMsg.includes('R2 Bucket binding') || errorMsg.includes('BUCKET')) {
+             errorMsg = "严重错误：R2 存储桶绑定丢失。\n1. 请进入 Cloudflare Pages -> Settings -> Functions。\n2. 确保添加了 R2 Bucket Binding。\n3. 变量名称必须完全一致为 'BUCKET'。\n4. 确保设置了环境变量 'R2_PUBLIC_URL'。\n5. 重新部署。";
+        }
     }
     // ------------------
 
@@ -151,6 +157,20 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
 
   return data as T;
 }
+
+// --- Image Upload (Async) ---
+export const uploadImage = async (base64Data: string): Promise<string> => {
+    try {
+        const res = await fetchAPI<{ success: boolean; url: string }>('/upload', {
+            method: 'POST',
+            body: JSON.stringify({ image: base64Data })
+        });
+        return res.url;
+    } catch (e: any) {
+        console.error("Image upload failed", e);
+        throw new Error(e.message || "图片上传失败");
+    }
+};
 
 // --- Projects (Async) ---
 export const getProjects = async (): Promise<Project[]> => {
