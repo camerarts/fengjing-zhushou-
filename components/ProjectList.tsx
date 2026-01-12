@@ -69,15 +69,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ onOpenProject, onCreateProjec
              <FolderOpen size={40} className="opacity-50" />
           </div>
           <p className="text-xl font-bold text-white mb-2">暂无项目</p>
-          <p className="text-sm mb-8">创建第一个项目以开始</p>
-          {onCreateProject && (
-            <button 
-              onClick={onCreateProject}
-              className="px-6 py-2 rounded-full bg-brand-600 hover:bg-brand-500 text-white font-medium transition-colors shadow-lg shadow-brand-900/20"
-            >
-              创建项目
-            </button>
-          )}
+          <p className="text-sm">请点击左侧边栏“新建项目”开始创作</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
