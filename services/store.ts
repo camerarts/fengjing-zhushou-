@@ -102,10 +102,17 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
        if (data.traceId) traceId = data.traceId;
     }
 
+    // --- 智能错误诊断 ---
+    // 针对 "no such table" 错误提供明确的开发指引
+    if (typeof errorMsg === 'string' && errorMsg.includes('no such table')) {
+        errorMsg = `数据库表尚未初始化。\n请在终端运行：\nnpx wrangler d1 execute storyboard-db --local --file=./migrations/0001_init.sql`;
+    }
+    // ------------------
+
     // 4.1 处理常见 HTTP 错误码
     if (res.status === 401) errorMsg = "登录已过期或未授权";
-    if (res.status === 404) errorMsg = "请求的资源未找到";
-    if (res.status === 500) errorMsg = `服务器内部错误: ${errorMsg}`;
+    if (res.status === 404 && !errorMsg.includes('no such table')) errorMsg = "请求的资源未找到";
+    if (res.status === 500 && !errorMsg.includes('数据库表尚未初始化')) errorMsg = `服务器内部错误: ${errorMsg}`;
 
     throw new ApiError(errorMsg, res.status, traceId);
   }
