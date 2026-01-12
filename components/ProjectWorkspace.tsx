@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Project } from '../types';
 import { getProjectById, saveProject, getSystemPrompt, uploadImage } from '../services/store';
-import { generateStoryboardContent, generateImageContent } from '../services/geminiService';
+import { generateStoryboardContent, generateImageContent, generateImageFromReference } from '../services/geminiService';
 import { GRID_PREFIX_CN, GRID_PREFIX_EN, DEFAULT_NEGATIVE_PROMPT } from '../constants';
 import { Loader2, X, ChevronRight, ChevronLeft } from 'lucide-react';
 import { Step } from './workspace/types';
@@ -230,69 +230,117 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
     }
   };
 
-  const handleSplitImage = async () => {
+  const processSplitLogic = async (sourceImage: string) => {
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    
+    // Add timestamp to force fresh request if it's a URL
+    if (sourceImage.startsWith('data:')) {
+        img.src = sourceImage;
+    } else {
+        img.src = `${sourceImage}${sourceImage.includes('?') ? '&' : '?'}t=${Date.now()}`;
+    }
+
+    await img.decode();
+    const pieceWidth = img.width / 3;
+    const pieceHeight = img.height / 3;
+    
+    const splitBase64s: string[] = [];
+    const canvas = document.createElement('canvas');
+    canvas.width = pieceWidth;
+    canvas.height = pieceHeight;
+    const ctx = canvas.getContext('2d');
+
+    if (ctx) {
+        for (let row = 0; row < 3; row++) {
+            for (let col = 0; col < 3; col++) {
+                ctx.clearRect(0, 0, pieceWidth, pieceHeight);
+                ctx.drawImage(img, col * pieceWidth, row * pieceHeight, pieceWidth, pieceHeight, 0, 0, pieceWidth, pieceHeight);
+                splitBase64s.push(canvas.toDataURL('image/jpeg', 0.95));
+            }
+        }
+    }
+    
+    setUploadingStatus(`正在上传 9 张切片...`);
+    const newSplitUrls: string[] = [];
+    
+    for(let i=0; i<splitBase64s.length; i++) {
+        try {
+            const url = await uploadImage(splitBase64s[i]);
+            newSplitUrls.push(url);
+        } catch(e) {
+            newSplitUrls.push(splitBase64s[i]);
+        }
+    }
+
+    setUploadingStatus(null);
+    setSplitImgs(newSplitUrls);
+    
+    if(project) {
+        const updated = { ...project, splitImages: newSplitUrls, updatedAt: Date.now() };
+        await saveProject(updated);
+        setProject(updated);
+    }
+  };
+
+  // Main Action: Generate new grid via AI, then split
+  const handleGenerateAndSplit = async () => {
     if (!negativeImg) return;
+    if (!gridEn) return alert("缺少网格指令（Grid Instructions）。请先在步骤4生成网格指令。");
+
     setLoading(true);
     setLoadingStep('split');
+    setUploadingStatus("正在分析底片并生成九宫格...");
 
     try {
-        const img = new Image();
-        img.crossOrigin = "Anonymous";
-        if (negativeImg.startsWith('data:')) {
-            img.src = negativeImg;
-        } else {
-            img.src = `${negativeImg}${negativeImg.includes('?') ? '&' : '?'}t=${Date.now()}`;
-        }
-
-        await img.decode();
-        const pieceWidth = img.width / 3;
-        const pieceHeight = img.height / 3;
-        
-        const splitBase64s: string[] = [];
-        const canvas = document.createElement('canvas');
-        canvas.width = pieceWidth;
-        canvas.height = pieceHeight;
-        const ctx = canvas.getContext('2d');
-
-        if (ctx) {
-            for (let row = 0; row < 3; row++) {
-                for (let col = 0; col < 3; col++) {
-                    ctx.clearRect(0, 0, pieceWidth, pieceHeight);
-                    ctx.drawImage(img, col * pieceWidth, row * pieceHeight, pieceWidth, pieceHeight, 0, 0, pieceWidth, pieceHeight);
-                    splitBase64s.push(canvas.toDataURL('image/jpeg', 0.95));
-                }
-            }
-        }
-        
-        setUploadingStatus(`正在处理切片...`);
-        const newSplitUrls: string[] = [];
-        
-        for(let i=0; i<splitBase64s.length; i++) {
+        // 1. Get Base64 of the reference image
+        let refBase64 = negativeImg;
+        if (!negativeImg.startsWith('data:')) {
             try {
-                const url = await uploadImage(splitBase64s[i]);
-                newSplitUrls.push(url);
-            } catch(e) {
-                newSplitUrls.push(splitBase64s[i]);
+                const fetchRes = await fetch(negativeImg);
+                const blob = await fetchRes.blob();
+                refBase64 = await new Promise<string>((resolve) => {
+                    const reader = new FileReader();
+                    reader.readAsDataURL(blob);
+                    reader.onloadend = () => resolve(reader.result as string);
+                });
+            } catch (err) {
+                console.error("Failed to fetch reference image for conversion", err);
+                throw new Error("无法读取底片参考图，请检查网络或重新上传。");
             }
         }
 
-        setUploadingStatus(null);
-        setSplitImgs(newSplitUrls);
+        // 2. Call Gemini to generate the 3x3 grid
+        const newGridBase64 = await generateImageFromReference(gridEn, refBase64);
         
-        if(project) {
-            const updated = { ...project, splitImages: newSplitUrls, updatedAt: Date.now() };
-            await saveProject(updated);
-            setProject(updated);
-        }
-    } catch (e) {
+        // 3. Split this NEW image
+        setUploadingStatus("正在切分新生成的九宫格...");
+        await processSplitLogic(newGridBase64);
+
+    } catch (e: any) {
         console.error(e);
-        alert("图片切分失败：可能是跨域(CORS)问题，请检查 R2 配置。");
+        alert("生成或切分失败：" + e.message);
     } finally {
         setLoading(false);
         setLoadingStep('');
         setUploadingStatus(null);
     }
   };
+
+  // Secondary Action: Just split the reference image (no AI gen)
+  const handleDirectSplit = async () => {
+    if (!negativeImg) return;
+    setLoading(true);
+    setLoadingStep('split');
+    try {
+        await processSplitLogic(negativeImg);
+    } catch(e: any) {
+        alert("切分失败：" + e.message);
+    } finally {
+        setLoading(false);
+        setLoadingStep('');
+    }
+  }
 
   const handleStepClick = (step: Step) => {
     setActiveStep(step);
@@ -419,7 +467,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                     isBackgroundUploading={isBackgroundUploading}
                     onGenerate={handleGenerateNegativeImage}
                     onImageSelected={handleImageSelected}
-                    onSplit={() => { setActiveStep('split'); handleSplitImage(); }}
+                    onSplit={() => { setActiveStep('split'); handleGenerateAndSplit(); }}
                 />
             )}
 
@@ -427,9 +475,11 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                 <SplitEditor 
                     splitImgs={splitImgs}
                     loading={loading}
-                    onResplit={handleSplitImage}
+                    onResplit={handleGenerateAndSplit}
+                    onDirectSplit={handleDirectSplit}
                     onGoBack={() => setActiveStep('negative')}
                     hasNegative={!!negativeImg}
+                    hasGrid={!!gridEn}
                 />
             )}
          </div>

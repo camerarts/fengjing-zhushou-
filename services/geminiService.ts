@@ -161,3 +161,56 @@ export const generateImageContent = async (
          throw error;
     }
 };
+
+export const generateImageFromReference = async (
+    prompt: string,
+    referenceImageBase64: string,
+    userApiKey?: string
+): Promise<string> => {
+    const client = await getClient(userApiKey);
+    const modelId = await getModelId('image');
+
+    // Clean base64 string (remove data:image/png;base64, prefix if present)
+    const base64Data = referenceImageBase64.replace(/^data:image\/\w+;base64,/, "");
+
+    try {
+        const response = await client.models.generateContent({
+            model: modelId,
+            contents: {
+                parts: [
+                    {
+                        text: prompt,
+                    },
+                    {
+                        inlineData: {
+                            mimeType: 'image/jpeg', // Assuming jpeg/png for reference
+                            data: base64Data
+                        }
+                    }
+                ]
+            },
+            config: {
+                // Image generation parameters if needed
+            }
+        });
+
+        if (response.candidates?.[0]?.content?.parts) {
+            for (const part of response.candidates[0].content.parts) {
+                if (part.inlineData && part.inlineData.data) {
+                    const base64EncodeString = part.inlineData.data;
+                    const mimeType = part.inlineData.mimeType || 'image/png';
+                    return `data:${mimeType};base64,${base64EncodeString}`;
+                }
+            }
+        }
+        
+        throw new Error("AI 未能生成图片");
+
+    } catch (error: any) {
+        console.error("Gemini Reference Image Generation Error:", error);
+        if (error.message?.includes("403") || error.message?.includes("API_KEY")) {
+            throw new Error("API 密钥无效或无访问权限。请检查您的密钥配置。");
+        }
+        throw error;
+    }
+};

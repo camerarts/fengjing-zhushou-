@@ -1,15 +1,19 @@
 import React from 'react';
-import { Loader2, LayoutGrid, Download, AlertTriangle, RotateCw } from 'lucide-react';
+import { Loader2, LayoutGrid, Download, AlertTriangle, Wand2, Scissors } from 'lucide-react';
 
 interface SplitEditorProps {
   splitImgs: string[];
   loading: boolean;
   onResplit: () => void;
+  onDirectSplit: () => void;
   onGoBack: () => void;
   hasNegative: boolean;
+  hasGrid: boolean;
 }
 
-const SplitEditor: React.FC<SplitEditorProps> = ({ splitImgs, loading, onResplit, onGoBack, hasNegative }) => {
+const SplitEditor: React.FC<SplitEditorProps> = ({ 
+    splitImgs, loading, onResplit, onDirectSplit, onGoBack, hasNegative, hasGrid 
+}) => {
   const isBase64 = (str: string) => str.startsWith('data:');
 
   return (
@@ -55,14 +59,27 @@ const SplitEditor: React.FC<SplitEditorProps> = ({ splitImgs, loading, onResplit
             </div>
         )}
         
-        <button 
-            onClick={onResplit}
-            disabled={loading || !hasNegative}
-            className="mt-4 w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl text-sm font-bold transition-all border border-white/10"
-        >
-            {loading ? <Loader2 size={16} className="animate-spin" /> : <RotateCw size={16} />}
-            重新切分并上传
-        </button>
+        <div className="mt-4 space-y-2">
+            <button 
+                onClick={onResplit}
+                disabled={loading || !hasNegative || !hasGrid}
+                className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-500 text-white py-3 rounded-xl text-sm font-bold shadow-lg shadow-brand-900/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.01]"
+                title={!hasGrid ? "需要先生成网格指令" : ""}
+            >
+                {loading ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
+                AI 生成九宫格并切分
+            </button>
+            {!hasGrid && <p className="text-[10px] text-red-400 text-center">无法生成：缺少 Module 4 网格指令</p>}
+
+            <button 
+                onClick={onDirectSplit}
+                disabled={loading || !hasNegative}
+                className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 rounded-xl text-xs font-medium transition-all border border-white/10 hover:border-white/20"
+            >
+                <Scissors size={12} />
+                仅切分底片 (不重新生成)
+            </button>
+        </div>
     </div>
   );
 };
