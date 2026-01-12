@@ -316,7 +316,16 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
     try {
         const img = new Image();
         img.crossOrigin = "Anonymous";
-        img.src = negativeImg;
+        
+        // Fix: Use a timestamp to bypass browser cache for the CORS request
+        // This ensures that even if the image was previously loaded without CORS (for display),
+        // we force a fresh request that includes the Origin header for Canvas processing.
+        if (negativeImg.startsWith('data:')) {
+            img.src = negativeImg;
+        } else {
+            img.src = `${negativeImg}${negativeImg.includes('?') ? '&' : '?'}t=${Date.now()}`;
+        }
+
         await img.decode();
 
         const pieceWidth = img.width / 3;
@@ -363,7 +372,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
         }
     } catch (e) {
         console.error(e);
-        alert("图片切分失败");
+        alert("图片切分失败：可能是跨域(CORS)问题，请检查 R2 配置。");
     } finally {
         setLoading(false);
         setLoadingStep('');
@@ -929,8 +938,8 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
 
                         {negativeImg ? (
                             <div className="w-full h-full relative group">
-                                {/* Use crossOrigin to allow canvas processing later */}
-                                <img src={negativeImg} crossOrigin="anonymous" alt="Negative" className="w-full h-full object-contain" />
+                                {/* Removed crossOrigin="anonymous" to allow display of images without strict CORS headers */}
+                                <img src={negativeImg} alt="Negative" className="w-full h-full object-contain" />
                                 <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity gap-3">
                                     <button 
                                         onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
@@ -1000,7 +1009,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                             <div className="grid grid-cols-3 gap-3 pb-4">
                                 {splitImgs.map((img, i) => (
                                     <div key={i} className="relative group aspect-[9/16] bg-black/50 rounded-lg overflow-hidden border border-white/10">
-                                        <img src={img} crossOrigin="anonymous" alt={`Frame ${i+1}`} className="w-full h-full object-cover" />
+                                        <img src={img} alt={`Frame ${i+1}`} className="w-full h-full object-cover" />
                                         <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] font-mono px-1.5 rounded backdrop-blur-sm">
                                             #{i + 1}
                                         </div>
