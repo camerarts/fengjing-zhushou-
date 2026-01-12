@@ -3,14 +3,14 @@ import { Project } from '../types';
 import { getProjectById, saveProject, getSystemPrompt } from '../services/store';
 import { generateStoryboardContent } from '../services/geminiService';
 import { GRID_PREFIX_CN, GRID_PREFIX_EN } from '../constants';
-import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, ChevronLeft, Maximize2, Minus, Plus as PlusIcon, RotateCcw, Play } from 'lucide-react';
+import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, ChevronLeft, Maximize2, Minus, Plus as PlusIcon, RotateCcw, Film, LayoutGrid, Upload, Download, Scissors } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 
 interface WorkspaceProps {
   projectId?: string; // Optional if not used directly
 }
 
-type Step = 'input' | 'storyboard' | 'grid';
+type Step = 'input' | 'storyboard' | 'grid' | 'negative' | 'split';
 
 const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
   const { id } = useParams<{ id: string }>();
@@ -18,7 +18,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
   
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadingStep, setLoadingStep] = useState<string>(''); // 'storyboard' | 'grid'
+  const [loadingStep, setLoadingStep] = useState<string>(''); 
   const [saving, setSaving] = useState(false);
   
   // Navigation State
@@ -35,12 +35,18 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
   const lastMousePosRef = useRef({ x: 0, y: 0 });
   const dragStartPosRef = useRef({ x: 0, y: 0 });
 
+  // Input Ref
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Local state for edits
   const [plan, setPlan] = useState('');
   const [sbCn, setSbCn] = useState<string[]>([]);
   const [sbEn, setSbEn] = useState<string[]>([]);
   const [gridCn, setGridCn] = useState('');
   const [gridEn, setGridEn] = useState('');
+  const [negativeImg, setNegativeImg] = useState('');
+  const [splitImgs, setSplitImgs] = useState<string[]>([]);
 
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -56,23 +62,29 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             setSbEn(p.storyboardEn || []);
             setGridCn(p.grid3x3Zh || '');
             setGridEn(p.grid3x3En || '');
+            setNegativeImg(p.negativeImage || '');
+            setSplitImgs(p.splitImages || []);
             
             // Auto navigate to the furthest empty step
-            if (!p.creativePlan) {
-                setActiveStep('input');
-                setIsPanelOpen(true);
-            }
-            else if (p.storyboardZh.length === 0) {
-                setActiveStep('storyboard');
-                setIsPanelOpen(true);
-            }
-            else {
-                 setActiveStep('grid');
-                 setIsPanelOpen(false); 
+            if (!p.creativePlan) setActiveStep('input');
+            else if (p.storyboardZh.length === 0) setActiveStep('storyboard');
+            else if (!p.grid3x3Zh) setActiveStep('grid');
+            else if (!p.negativeImage) setActiveStep('negative');
+            else setActiveStep('split');
+            
+            if (!p.creativePlan || p.storyboardZh.length === 0) {
+               setIsPanelOpen(true);
             }
         }
     });
   }, [projectId]);
+
+  // Focus Input effect when step becomes input
+  useEffect(() => {
+    if (activeStep === 'input' && isPanelOpen && inputRef.current) {
+        inputRef.current.focus({ preventScroll: true });
+    }
+  }, [activeStep, isPanelOpen]);
 
   const handleSave = async () => {
     if (!project) return;
@@ -84,6 +96,8 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
       storyboardEn: sbEn,
       grid3x3Zh: gridCn,
       grid3x3En: gridEn,
+      negativeImage: negativeImg,
+      splitImages: splitImgs,
       updatedAt: Date.now()
     };
     await saveProject(updated);
@@ -137,9 +151,6 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
     setLoadingStep('grid');
 
     try {
-      // FRONTEND PROCESSING ONLY
-      // No API calls here. We just format the existing text.
-      
       const cnInstructions = sbCn.map((t, i) => `${i + 1}. ${t}`).join('\n');
       const enInstructions = sbEn.map((t, i) => `${i + 1}. ${t}`).join('\n');
       
@@ -161,6 +172,67 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
     } finally {
       setLoading(false);
       setLoadingStep('');
+    }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = async (ev) => {
+            const base64 = ev.target?.result as string;
+            setNegativeImg(base64);
+            if(project) {
+                const updated = { ...project, negativeImage: base64, updatedAt: Date.now() };
+                await saveProject(updated);
+                setProject(updated);
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSplitImage = async () => {
+    if (!negativeImg) return;
+    setLoading(true);
+    setLoadingStep('split');
+
+    try {
+        const img = new Image();
+        img.src = negativeImg;
+        await img.decode();
+
+        const pieceWidth = img.width / 3;
+        const pieceHeight = img.height / 3;
+        const newSplits: string[] = [];
+
+        const canvas = document.createElement('canvas');
+        canvas.width = pieceWidth;
+        canvas.height = pieceHeight;
+        const ctx = canvas.getContext('2d');
+
+        if (ctx) {
+            for (let row = 0; row < 3; row++) {
+                for (let col = 0; col < 3; col++) {
+                    ctx.clearRect(0, 0, pieceWidth, pieceHeight);
+                    // Draw slice
+                    ctx.drawImage(img, col * pieceWidth, row * pieceHeight, pieceWidth, pieceHeight, 0, 0, pieceWidth, pieceHeight);
+                    newSplits.push(canvas.toDataURL('image/jpeg', 0.95));
+                }
+            }
+        }
+        setSplitImgs(newSplits);
+        
+        if(project) {
+            const updated = { ...project, splitImages: newSplits, updatedAt: Date.now() };
+            await saveProject(updated);
+            setProject(updated);
+        }
+    } catch (e) {
+        alert("图片切分失败");
+    } finally {
+        setLoading(false);
+        setLoadingStep('');
     }
   };
 
@@ -251,10 +323,10 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
       <div 
         onMouseDown={(e) => e.stopPropagation()} // Prevent pan start when interacting with node
         onClick={(e) => { e.stopPropagation(); handleStepClick(stepId); }}
-        className={`relative group flex flex-col items-center text-center p-6 w-56 rounded-3xl border cursor-pointer shadow-2xl pb-10
+        className={`relative group flex flex-col items-center text-center p-6 w-56 rounded-3xl border cursor-pointer shadow-2xl pb-10 transition-transform duration-300
           ${isActive 
             ? 'bg-slate-800 border-brand-500 ring-2 ring-brand-500/20 shadow-[0_0_50px_rgba(14,165,233,0.15)] z-20' 
-            : 'bg-slate-900/80 backdrop-blur-md border-white/10 text-slate-400 hover:border-white/20 hover:bg-slate-800 z-10'
+            : 'bg-slate-900/80 backdrop-blur-md border-white/10 text-slate-400 hover:border-white/20 hover:bg-slate-800 hover:-translate-y-1 z-10'
           }`}
       >
         {/* Status Dot */}
@@ -384,7 +456,6 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                 desc="选题与创意方案" 
                 icon={LayoutTemplate} 
                 isDone={!!plan}
-                // Step 1 is the start, no "Generate" button needed
             />
             <Connector />
             <CanvasNode 
@@ -406,11 +477,28 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                 isDone={!!gridCn} 
                 onGenerate={handleGenerateGrid}
             />
+            <Connector />
+            <CanvasNode 
+                id={4} 
+                stepId="negative" 
+                label="底片" 
+                desc="上传/生成 3x3 原图" 
+                icon={Film} 
+                isDone={!!negativeImg} 
+            />
+            <Connector />
+            <CanvasNode 
+                id={5} 
+                stepId="split" 
+                label="九宫格图片" 
+                desc="自动切分 9 张图" 
+                icon={LayoutGrid} 
+                isDone={splitImgs.length > 0} 
+            />
           </div>
       </div>
 
       {/* Right Drawer Panel (Overlay) */}
-      {/* Width increased from 350px to 420px (default), 840px (expanded) */}
       <div 
         onMouseDown={e => e.stopPropagation()} // Prevent events from bubbling to canvas
         onClick={(e) => e.stopPropagation()} 
@@ -419,7 +507,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
           ${isExpanded ? 'md:w-[840px]' : 'md:w-[420px]'}
         `}
       >
-         {/* Expand Toggle Handle (Visible when panel is open) */}
+         {/* Expand Toggle Handle */}
          <button
             onClick={(e) => {
                 e.stopPropagation();
@@ -437,10 +525,14 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                  {activeStep === 'input' && <LayoutTemplate size={18} className="text-brand-400 shrink-0"/>}
                  {activeStep === 'storyboard' && <FileText size={18} className="text-brand-400 shrink-0"/>}
                  {activeStep === 'grid' && <Grid size={18} className="text-brand-400 shrink-0"/>}
+                 {activeStep === 'negative' && <Film size={18} className="text-brand-400 shrink-0"/>}
+                 {activeStep === 'split' && <LayoutGrid size={18} className="text-brand-400 shrink-0"/>}
                  <span className="font-bold text-white tracking-tight truncate text-sm">
                     {activeStep === 'input' && '创意方案输入'}
                     {activeStep === 'storyboard' && '分镜脚本 (9帧)'}
                     {activeStep === 'grid' && '视觉网格 (3x3)'}
+                    {activeStep === 'negative' && '底片管理'}
+                    {activeStep === 'split' && '分镜切片 (9张)'}
                  </span>
              </div>
              <button onClick={() => setIsPanelOpen(false)} className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors shrink-0">
@@ -459,11 +551,11 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                     </p>
                     <div className="flex-1 bg-black/20 rounded-2xl border border-white/10 p-4 mb-4 relative focus-within:ring-1 focus-within:ring-brand-500/50 transition-all">
                         <textarea 
+                            ref={inputRef}
                             value={plan}
                             onChange={(e) => setPlan(e.target.value)}
                             placeholder="例如：一个赛博朋克风格的雨夜，霓虹灯闪烁，主角独自走在街道上..."
                             className="w-full h-full bg-transparent text-slate-200 resize-none focus:outline-none placeholder:text-slate-600 leading-relaxed text-sm"
-                            autoFocus
                         />
                     </div>
                     <button 
@@ -619,6 +711,107 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                      <RotateCw size={14} />
                      重新生成网格
                    </button>
+                </div>
+            )}
+
+            {/* NEGATIVE (FILM) EDITOR */}
+            {activeStep === 'negative' && (
+                <div className="h-full flex flex-col animate-fade-in">
+                    <p className="text-sm text-slate-400 mb-4">
+                        请上传使用上述提示词生成的 3x3 网格原图 (底片)。
+                    </p>
+                    
+                    <div 
+                        className={`flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-3xl transition-all relative overflow-hidden
+                            ${negativeImg ? 'border-white/20 bg-black/40' : 'border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer'}
+                        `}
+                        onClick={() => !negativeImg && fileInputRef.current?.click()}
+                    >
+                        <input 
+                            ref={fileInputRef}
+                            type="file" 
+                            accept="image/*" 
+                            className="hidden" 
+                            onChange={handleImageUpload}
+                        />
+
+                        {negativeImg ? (
+                            <div className="w-full h-full relative group">
+                                <img src={negativeImg} alt="Negative" className="w-full h-full object-contain" />
+                                <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button 
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="bg-white text-black px-4 py-2 rounded-full font-bold text-sm hover:scale-105 transition-transform"
+                                    >
+                                        更换图片
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center text-slate-500">
+                                <Upload size={32} className="mb-2 opacity-50" />
+                                <span className="text-sm font-medium">点击上传图片</span>
+                                <span className="text-xs opacity-50 mt-1">支持 JPG, PNG</span>
+                            </div>
+                        )}
+                    </div>
+
+                    <button 
+                        onClick={() => { setActiveStep('split'); handleSplitImage(); }}
+                        disabled={!negativeImg}
+                        className="mt-4 w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-500 text-white py-3 rounded-xl text-sm font-bold shadow-lg shadow-brand-900/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <Scissors size={16} />
+                        去切分图片
+                    </button>
+                </div>
+            )}
+
+            {/* SPLIT IMAGE EDITOR */}
+            {activeStep === 'split' && (
+                <div className="h-full flex flex-col animate-fade-in">
+                    <p className="text-sm text-slate-400 mb-4 flex justify-between">
+                        <span>已自动切分为 9 张独立图片。</span>
+                        <span className="text-xs bg-brand-500/20 text-brand-300 px-2 py-0.5 rounded-full border border-brand-500/20">9:16</span>
+                    </p>
+
+                    {splitImgs.length === 0 ? (
+                        <div className="flex-1 flex flex-col items-center justify-center text-slate-500 bg-white/5 rounded-2xl border border-dashed border-white/10">
+                            <LayoutGrid size={32} className="mb-2 opacity-50" />
+                            <span className="text-sm">暂无切片数据</span>
+                            <button onClick={() => setActiveStep('negative')} className="mt-2 text-brand-400 text-xs hover:underline">返回底片上传</button>
+                        </div>
+                    ) : (
+                        <div className="flex-1 overflow-y-auto">
+                            <div className="grid grid-cols-3 gap-3 pb-4">
+                                {splitImgs.map((img, i) => (
+                                    <div key={i} className="relative group aspect-[9/16] bg-black/50 rounded-lg overflow-hidden border border-white/10">
+                                        <img src={img} alt={`Frame ${i+1}`} className="w-full h-full object-cover" />
+                                        <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] font-mono px-1.5 rounded backdrop-blur-sm">
+                                            #{i + 1}
+                                        </div>
+                                        <a 
+                                            href={img} 
+                                            download={`storyboard_${i+1}.jpg`}
+                                            className="absolute bottom-1 right-1 p-1.5 bg-white text-black rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110"
+                                            title="下载图片"
+                                        >
+                                            <Download size={12} />
+                                        </a>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    
+                    <button 
+                        onClick={handleSplitImage}
+                        disabled={loading || !negativeImg}
+                        className="mt-4 w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl text-sm font-bold transition-all border border-white/10"
+                    >
+                        {loading ? <Loader2 size={16} className="animate-spin" /> : <RotateCw size={16} />}
+                        重新切分
+                    </button>
                 </div>
             )}
 

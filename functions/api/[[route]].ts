@@ -118,6 +118,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           creativePlan: body.creativePlan || '',
           grid3x3Zh: body.grid3x3Zh || '',
           grid3x3En: body.grid3x3En || '',
+          negativeImage: body.negativeImage || '',
+          splitImages: body.splitImages || [],
           createdAt: body.createdAt || Date.now(),
           updatedAt: body.updatedAt || Date.now()
         };
