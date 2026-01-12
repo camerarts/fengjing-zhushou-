@@ -484,8 +484,44 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
   };
 
   const Connector = () => (
-    <div className="w-16 h-px bg-slate-700 relative">
+    <div className="w-16 h-px bg-slate-700 relative flex-shrink-0">
         <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-slate-700 rounded-full"></div>
+    </div>
+  );
+
+  const SplitConnector = () => (
+    <div className="w-16 h-[320px] relative flex-shrink-0">
+         <svg className="w-full h-full overflow-visible">
+            <path d="M0,160 L24,160" stroke="#334155" strokeWidth="1" fill="none" /> 
+            <path d="M24,80 L24,240" stroke="#334155" strokeWidth="1" fill="none" /> 
+            
+            {/* Top Curve */}
+            <path d="M24,80 L64,80" stroke="#334155" strokeWidth="1" fill="none" />
+            <circle cx="64" cy="80" r="2.5" fill="#334155" />
+            
+            {/* Bottom Curve */}
+            <path d="M24,240 L64,240" stroke="#334155" strokeWidth="1" fill="none" />
+            <circle cx="64" cy="240" r="2.5" fill="#334155" />
+         </svg>
+    </div>
+  );
+
+  const JoinConnector = () => (
+    <div className="w-16 h-[320px] relative flex-shrink-0">
+         <svg className="w-full h-full overflow-visible">
+            {/* Top Input */}
+            <path d="M0,80 L32,80" stroke="#334155" strokeWidth="1" fill="none" />
+            
+            {/* Bottom Input */}
+            <path d="M0,240 L32,240" stroke="#334155" strokeWidth="1" fill="none" />
+            
+            {/* Vertical Join */}
+            <path d="M32,80 L32,240" stroke="#334155" strokeWidth="1" fill="none" />
+            
+            {/* Output */}
+            <path d="M32,160 L64,160" stroke="#334155" strokeWidth="1" fill="none" />
+            <circle cx="64" cy="160" r="2.5" fill="#334155" />
+         </svg>
     </div>
   );
 
@@ -567,7 +603,8 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             transform: `translate(${viewState.x}px, ${viewState.y}px) scale(${viewState.scale})`
         }}
       >
-          <div className="flex items-center gap-2 pointer-events-auto">
+          <div className="flex items-center gap-0 pointer-events-auto">
+            {/* 1. Input */}
             <CanvasNode 
                 id={1} 
                 stepId="input" 
@@ -577,6 +614,8 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                 isDone={!!plan}
             />
             <Connector />
+
+            {/* 2. Storyboard */}
             <CanvasNode 
                 id={2} 
                 stepId="storyboard" 
@@ -586,27 +625,39 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                 isDone={sbCn.length > 0} 
                 onGenerate={handleGenerateStoryboard}
             />
-            <Connector />
-            <CanvasNode 
-                id={3} 
-                stepId="grid" 
-                label="视觉网格" 
-                desc="3x3 提示词" 
-                icon={Grid} 
-                isDone={!!gridCn} 
-                onGenerate={handleGenerateGrid}
-            />
-            <Connector />
-            <CanvasNode 
-                id={4} 
-                stepId="negative" 
-                label="底片 (锚点图)" 
-                desc="单张环境/光影设定图" 
-                icon={Film} 
-                isDone={!!negativeImg}
-                onGenerate={handleGenerateNegativeImage}
-            />
-            <Connector />
+            
+            {/* Branching Point */}
+            <SplitConnector />
+            
+            {/* Parallel Modules Container */}
+            <div className="flex flex-col gap-12 justify-center">
+                {/* 3. Grid (Top Branch) */}
+                <CanvasNode 
+                    id={3} 
+                    stepId="grid" 
+                    label="视觉网格" 
+                    desc="3x3 提示词" 
+                    icon={Grid} 
+                    isDone={!!gridCn} 
+                    onGenerate={handleGenerateGrid}
+                />
+                
+                {/* 4. Negative (Bottom Branch) */}
+                <CanvasNode 
+                    id={4} 
+                    stepId="negative" 
+                    label="底片 (锚点图)" 
+                    desc="单张环境/光影设定图" 
+                    icon={Film} 
+                    isDone={!!negativeImg}
+                    onGenerate={handleGenerateNegativeImage}
+                />
+            </div>
+            
+            {/* Merging Point */}
+            <JoinConnector />
+
+            {/* 5. Split (Result) */}
             <CanvasNode 
                 id={5} 
                 stepId="split" 
@@ -783,6 +834,58 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                             生成 3x3 网格指令
                         </button>
                      )}
+                </div>
+            )}
+
+            {/* GRID EDITOR */}
+            {activeStep === 'grid' && (
+                <div className="h-full flex flex-col animate-fade-in">
+                    <p className="text-sm text-slate-400 mb-4">
+                        已格式化的 3x3 网格生成指令，可直接复制使用。
+                    </p>
+                    
+                    <div className="flex-1 space-y-4 overflow-y-auto pb-4">
+                        {/* CN Block */}
+                        <div className="bg-black/20 rounded-2xl border border-white/10 overflow-hidden">
+                            <div className="px-4 py-2 border-b border-white/5 flex justify-between items-center bg-white/5">
+                                <span className="text-xs font-bold text-slate-500">中文指令 (CN)</span>
+                                <button onClick={() => handleCopy(gridCn, 'grid_cn')} className="text-slate-400 hover:text-white transition-colors">
+                                    {copied === 'grid_cn' ? <Check size={14}/> : <Copy size={14}/>}
+                                </button>
+                            </div>
+                            <textarea 
+                                value={gridCn}
+                                onChange={e => setGridCn(e.target.value)}
+                                className="w-full h-40 bg-transparent p-4 text-xs font-mono text-slate-300 resize-none focus:outline-none leading-relaxed"
+                                placeholder="等待生成..."
+                            />
+                        </div>
+
+                        {/* EN Block */}
+                        <div className="bg-black/20 rounded-2xl border border-white/10 overflow-hidden">
+                            <div className="px-4 py-2 border-b border-white/5 flex justify-between items-center bg-white/5">
+                                <span className="text-xs font-bold text-slate-500">英文指令 (EN)</span>
+                                <button onClick={() => handleCopy(gridEn, 'grid_en')} className="text-slate-400 hover:text-white transition-colors">
+                                    {copied === 'grid_en' ? <Check size={14}/> : <Copy size={14}/>}
+                                </button>
+                            </div>
+                            <textarea 
+                                value={gridEn}
+                                onChange={e => setGridEn(e.target.value)}
+                                className="w-full h-40 bg-transparent p-4 text-xs font-mono text-slate-300 resize-none focus:outline-none leading-relaxed"
+                                placeholder="等待生成..."
+                            />
+                        </div>
+                    </div>
+                    
+                    <button 
+                     onClick={handleGenerateGrid}
+                     disabled={loading || sbCn.length === 0}
+                     className="mt-4 w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl text-sm font-bold transition-all border border-white/10"
+                   >
+                     <RotateCw size={14} />
+                     重新生成网格
+                   </button>
                 </div>
             )}
 
