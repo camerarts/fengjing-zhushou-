@@ -4,14 +4,29 @@ import { ModelType } from '../types';
 
 // Helper to get client
 const getClient = async (apiKey?: string) => {
-  // Priority: 1. Passed key, 2. Stored User Key, 3. Env Key (fallback for devs)
-  // NOTE: getDefaultKey is now async
-  const storedKey = await getDefaultKey();
-  const key = apiKey || storedKey || process.env.API_KEY;
-  if (!key) {
-    throw new Error("未找到 API 密钥。请在“密钥管理”中添加一个。");
+  // Priority 1: Direct argument (e.g. passed from a specific temporary input)
+  // 最高优先级：直接传入的参数（用于临时覆盖）
+  if (apiKey) {
+    return new GoogleGenAI({ apiKey });
   }
-  return new GoogleGenAI({ apiKey: key });
+
+  // Priority 2: Stored Key from Resource Management (The "Frontend Configured" Key)
+  // 第二优先级：资源管理中配置的密钥 (用户在前端界面设置的)
+  const storedKey = await getDefaultKey();
+  if (storedKey) {
+    // console.log("Using Resource Management API Key");
+    return new GoogleGenAI({ apiKey: storedKey });
+  }
+
+  // Priority 3: Environment Variable (Fallback / System Key)
+  // 第三优先级：环境变量 (系统预设兜底)
+  const envKey = process.env.API_KEY;
+  if (envKey) {
+    // console.log("Using Environment API Key");
+    return new GoogleGenAI({ apiKey: envKey });
+  }
+
+  throw new Error("未找到 API 密钥。请在“资源管理”页面的“密钥”中添加一个，或联系管理员配置环境变量。");
 };
 
 // Helper to get model ID by type

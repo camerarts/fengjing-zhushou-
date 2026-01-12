@@ -228,8 +228,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
                 const list = await env.KV.list({ prefix: 'model:' });
                 for (const k of list.keys) {
                     const item: any = await env.KV.get(k.name, 'json');
+                    // Ensure robust type checking: default existing item type to 'text'
+                    const itemType = item.type || 'text';
                     // Only unset default for same type
-                    if (item && item.isDefault && item.type === targetType) {
+                    if (item && item.isDefault && itemType === targetType) {
                         item.isDefault = false;
                         await env.KV.put(k.name, JSON.stringify(item));
                     }
@@ -252,8 +254,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
                 for (const k of list.keys) {
                     if (k.name !== `model:${id}`) {
                         const item: any = await env.KV.get(k.name, 'json');
+                        // Ensure robust type checking: default existing item type to 'text'
+                        const itemType = item.type || 'text';
                         // Only unset default for same type
-                        if (item && item.isDefault && item.type === targetType) {
+                        if (item && item.isDefault && itemType === targetType) {
                             item.isDefault = false;
                             await env.KV.put(k.name, JSON.stringify(item));
                         }
