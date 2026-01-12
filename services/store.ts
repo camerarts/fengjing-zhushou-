@@ -112,7 +112,17 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
     // 4.1 处理常见 HTTP 错误码
     if (res.status === 401) errorMsg = "登录已过期或未授权";
     if (res.status === 404 && !errorMsg.includes('no such table')) errorMsg = "请求的资源未找到";
-    if (res.status === 500 && !errorMsg.includes('数据库表尚未初始化')) errorMsg = `服务器内部错误: ${errorMsg}`;
+    
+    if (res.status === 500) {
+        if (!errorMsg.includes('数据库表尚未初始化')) {
+             // 检查是否是 D1 绑定丢失导致的错误
+             if (errorMsg.includes('Database binding') || errorMsg.includes('wrangler.toml')) {
+                 errorMsg = "环境配置错误：数据库未绑定。\n请在 Cloudflare Pages 设置中添加 D1 绑定 (变量名: DB)，或修复 wrangler.toml 中的 ID。";
+             } else {
+                 errorMsg = `服务器内部错误: ${errorMsg}`;
+             }
+        }
+    }
 
     throw new ApiError(errorMsg, res.status, traceId);
   }
