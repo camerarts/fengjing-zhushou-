@@ -1,29 +1,10 @@
-// Cloudflare Pages/Workers Types Polyfill for compilation
-interface D1Result<T = unknown> {
-  results: T[];
-  success: boolean;
-  meta: any;
-  error?: string;
-}
 
-interface D1ExecResult {
-  count: number;
-  duration: number;
-}
-
-interface D1PreparedStatement {
-  bind(...values: any[]): D1PreparedStatement;
-  first<T = unknown>(colName?: string): Promise<T | null>;
-  run<T = unknown>(): Promise<D1Result<T>>;
-  all<T = unknown>(): Promise<D1Result<T>>;
-  raw<T = unknown>(): Promise<T[]>;
-}
-
-interface D1Database {
-  prepare(query: string): D1PreparedStatement;
-  dump(): Promise<ArrayBuffer>;
-  batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]>;
-  exec(query: string): Promise<D1ExecResult>;
+// Cloudflare KV Namespace Type Definition
+interface KVNamespace {
+  get(key: string, options?: { type?: "text" | "json" | "arrayBuffer" | "stream"; cacheTtl?: number } | "text" | "json" | "arrayBuffer" | "stream"): Promise<any>;
+  put(key: string, value: string | ReadableStream | ArrayBuffer, options?: { expiration?: number; expirationTtl?: number; metadata?: any }): Promise<void>;
+  delete(key: string): Promise<void>;
+  list(options?: { prefix?: string; limit?: number; cursor?: string }): Promise<{ keys: { name: string; expiration?: number; metadata?: any }[]; list_complete: boolean; cursor?: string }>;
 }
 
 interface EventContext<Env, P extends string, Data> {
@@ -42,45 +23,14 @@ type PagesFunction<Env = unknown, Params extends string = any, Data extends Reco
 ) => Response | Promise<Response>;
 
 interface Env {
-  DB: D1Database;
+  KV: KVNamespace;
 }
 
-// 4.4 鉴权与 CORS 头 helper
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 };
-
-// Auto-initialization Schema
-const SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS projects (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  creative_plan TEXT,
-  storyboard_zh TEXT,
-  storyboard_en TEXT,
-  grid_3x3_zh TEXT,
-  grid_3x3_en TEXT,
-  created_at INTEGER,
-  updated_at INTEGER
-);
-CREATE TABLE IF NOT EXISTS api_keys (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  label TEXT NOT NULL,
-  key_value TEXT NOT NULL,
-  is_default INTEGER DEFAULT 0,
-  created_at INTEGER
-);
-CREATE TABLE IF NOT EXISTS prompts (
-  id TEXT PRIMARY KEY,
-  module_key TEXT UNIQUE NOT NULL,
-  content TEXT,
-  updated_at INTEGER
-);
-`;
 
 // Helper for JSON responses
 const jsonResponse = (data: any, status = 200) => {
@@ -102,29 +52,8 @@ const errorResponse = (message: string, status = 500, traceId?: string) => {
   }, status);
 };
 
-// DB Retry Wrapper
-async function dbQuery<T>(env: Env, operation: () => Promise<T>): Promise<T> {
-  try {
-    return await operation();
-  } catch (err: any) {
-    // If table doesn't exist, try to init DB and retry once
-    if (err.message && (err.message.includes('no such table') || err.message.includes('SQLITE_ERROR'))) {
-      console.warn("Database tables missing. Attempting auto-initialization...");
-      try {
-        await env.DB.exec(SCHEMA_SQL);
-        console.log("Database initialized successfully. Retrying operation...");
-        return await operation();
-      } catch (initErr: any) {
-        console.error("Auto-initialization failed:", initErr);
-        throw err; // Throw original error if init fails
-      }
-    }
-    throw err;
-  }
-}
-
 export const onRequest: PagesFunction<Env> = async (context) => {
-  const { request, env, params } = context;
+  const { request, env } = context;
   
   // Handle CORS Preflight
   if (request.method === 'OPTIONS') {
@@ -134,9 +63,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     });
   }
 
-  // 4.3 D1 Binding Check
-  if (!env.DB) {
-    return errorResponse("Database binding (DB) not found. Check wrangler.toml.", 500);
+  // KV Binding Check
+  if (!env.KV) {
+    return errorResponse("KV binding (KV) not found. Check wrangler.toml and Cloudflare Dashboard settings.", 500);
   }
 
   const url = new URL(request.url);
@@ -147,145 +76,172 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   try {
     // --- PROJECTS ---
+    // Key format: project:<id>
     if (resource === 'projects') {
       if (method === 'GET') {
         if (id) {
-          const result = await dbQuery(env, () => 
-            env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(id).first()
-          );
-          if (!result) return errorResponse('Project not found', 404);
-          return jsonResponse(mapProjectFromDb(result));
+          // Get Single
+          const project = await env.KV.get(`project:${id}`, 'json');
+          if (!project) return errorResponse('Project not found', 404);
+          return jsonResponse(project);
         } else {
-          const { results } = await dbQuery(env, () => 
-            env.DB.prepare('SELECT * FROM projects ORDER BY updated_at DESC').all()
+          // List All
+          // KV list returns keys, we need to fetch values or assume we list keys.
+          // For small app, we can list keys then fetch values in parallel.
+          const list = await env.KV.list({ prefix: 'project:' });
+          const keys = list.keys;
+          
+          // Fetch all projects in parallel
+          const projects = await Promise.all(
+            keys.map(key => env.KV.get(key.name, 'json'))
           );
-          return jsonResponse(results.map(mapProjectFromDb));
+          
+          // Filter out nulls and sort by updatedAt desc (JavaScript sort)
+          const validProjects = projects
+            .filter((p): p is any => p !== null)
+            .sort((a: any, b: any) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+          return jsonResponse(validProjects);
         }
       } 
       
       if (method === 'POST') {
         const body: any = await request.json();
         
-        // 简单校验
         if (!body.name || !body.userId) {
             return errorResponse("Missing required fields: name, userId", 400);
         }
 
-        try {
-            await dbQuery(env, () => 
-              env.DB.prepare(`
-              INSERT INTO projects (id, user_id, name, creative_plan, storyboard_zh, storyboard_en, grid_3x3_zh, grid_3x3_en, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              `).bind(
-              body.id, body.userId, body.name, body.creativePlan || '', 
-              JSON.stringify(body.storyboardZh || []), JSON.stringify(body.storyboardEn || []), 
-              body.grid3x3Zh || '', body.grid3x3En || '', body.createdAt || Date.now(), body.updatedAt || Date.now()
-              ).run()
-            );
-        } catch (dbErr: any) {
-            console.error("DB Insert Error", dbErr);
-            return errorResponse("Database insert failed: " + dbErr.message, 500);
-        }
-        
+        // Ensure defaults
+        const newProject = {
+          ...body,
+          storyboardZh: body.storyboardZh || [],
+          storyboardEn: body.storyboardEn || [],
+          creativePlan: body.creativePlan || '',
+          grid3x3Zh: body.grid3x3Zh || '',
+          grid3x3En: body.grid3x3En || '',
+          createdAt: body.createdAt || Date.now(),
+          updatedAt: body.updatedAt || Date.now()
+        };
+
+        await env.KV.put(`project:${body.id}`, JSON.stringify(newProject));
         return jsonResponse({ success: true, id: body.id }, 201);
       }
 
       if (method === 'PUT' && id) {
         const body: any = await request.json();
-        await dbQuery(env, () => 
-          env.DB.prepare(`
-            UPDATE projects SET 
-              name=?, creative_plan=?, storyboard_zh=?, storyboard_en=?, grid_3x3_zh=?, grid_3x3_en=?, updated_at=?
-            WHERE id=?
-          `).bind(
-            body.name, body.creativePlan, 
-            JSON.stringify(body.storyboardZh), JSON.stringify(body.storyboardEn), 
-            body.grid3x3Zh, body.grid3x3En, body.updatedAt, id
-          ).run()
-        );
+        // Since KV is key-value, PUT is same as overwriting.
+        // Usually we fetch existing to merge, but the frontend sends full object often.
+        // Let's assume frontend sends full object or we merge.
+        // For safety, let's fetch, merge, save.
+        const existing: any = await env.KV.get(`project:${id}`, 'json');
+        if (!existing) return errorResponse('Project not found', 404);
+
+        const updatedProject = {
+          ...existing,
+          ...body,
+          updatedAt: body.updatedAt || Date.now()
+        };
+
+        await env.KV.put(`project:${id}`, JSON.stringify(updatedProject));
         return jsonResponse({ success: true });
       }
 
       if (method === 'DELETE' && id) {
-        await dbQuery(env, () => 
-          env.DB.prepare('DELETE FROM projects WHERE id = ?').bind(id).run()
-        );
+        await env.KV.delete(`project:${id}`);
         return jsonResponse({ success: true });
       }
     }
 
     // --- API KEYS ---
+    // Key format: key:<id>
     if (resource === 'keys') {
       if (method === 'GET') {
-        const { results } = await dbQuery(env, () => 
-          env.DB.prepare('SELECT * FROM api_keys ORDER BY created_at DESC').all()
-        );
-        return jsonResponse(results.map(mapKeyFromDb));
+        const list = await env.KV.list({ prefix: 'key:' });
+        const keys = await Promise.all(list.keys.map(k => env.KV.get(k.name, 'json')));
+        const validKeys = keys
+            .filter((k): k is any => k !== null)
+            .sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
+        return jsonResponse(validKeys);
       }
 
       if (method === 'POST') {
         const body: any = await request.json();
-        // If setting default, unset others first
+        
+        // Handle "Default" logic manually since KV has no WHERE clause
         if (body.isDefault) {
-          await dbQuery(env, () => env.DB.prepare('UPDATE api_keys SET is_default = 0').run());
+           const list = await env.KV.list({ prefix: 'key:' });
+           for (const k of list.keys) {
+             const item: any = await env.KV.get(k.name, 'json');
+             if (item && item.isDefault) {
+               item.isDefault = false;
+               await env.KV.put(k.name, JSON.stringify(item));
+             }
+           }
         }
-        await dbQuery(env, () => 
-          env.DB.prepare(`
-            INSERT INTO api_keys (id, user_id, label, key_value, is_default, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-          `).bind(body.id, body.userId, body.label, body.key, body.isDefault ? 1 : 0, body.createdAt).run()
-        );
+
+        await env.KV.put(`key:${body.id}`, JSON.stringify(body));
         return jsonResponse({ success: true }, 201);
       }
 
       if (method === 'PUT' && id) {
          const body: any = await request.json();
+         const existing: any = await env.KV.get(`key:${id}`, 'json');
+         if (!existing) return errorResponse('Key not found', 404);
+
          if (body.isDefault) {
-           await dbQuery(env, () => env.DB.prepare('UPDATE api_keys SET is_default = 0').run());
+            const list = await env.KV.list({ prefix: 'key:' });
+            for (const k of list.keys) {
+                if (k.name !== `key:${id}`) {
+                    const item: any = await env.KV.get(k.name, 'json');
+                    if (item && item.isDefault) {
+                        item.isDefault = false;
+                        await env.KV.put(k.name, JSON.stringify(item));
+                    }
+                }
+            }
          }
-         await dbQuery(env, () => 
-           env.DB.prepare('UPDATE api_keys SET is_default = ? WHERE id = ?')
-            .bind(body.isDefault ? 1 : 0, id).run()
-         );
+         
+         const updated = { ...existing, ...body };
+         await env.KV.put(`key:${id}`, JSON.stringify(updated));
          return jsonResponse({ success: true });
       }
 
       if (method === 'DELETE' && id) {
-        await dbQuery(env, () => env.DB.prepare('DELETE FROM api_keys WHERE id = ?').bind(id).run());
+        await env.KV.delete(`key:${id}`);
         return jsonResponse({ success: true });
       }
     }
 
     // --- PROMPTS ---
+    // Key format: prompt:<moduleKey>
     if (resource === 'prompts') {
       if (method === 'GET') {
         const moduleKey = url.searchParams.get('moduleKey');
         if (moduleKey) {
-           const result = await dbQuery(env, () => 
-             env.DB.prepare('SELECT * FROM prompts WHERE module_key = ?').bind(moduleKey).first()
-           );
-           return jsonResponse(result || null);
+           const result = await env.KV.get(`prompt:${moduleKey}`, 'json');
+           return jsonResponse(result || null); // Return null if not found, frontend handles defaults
         }
-        const { results } = await dbQuery(env, () => env.DB.prepare('SELECT * FROM prompts').all());
-        return jsonResponse(results);
+        // List all prompts not strictly implemented in frontend, but logic is here:
+        const list = await env.KV.list({ prefix: 'prompt:' });
+        const prompts = await Promise.all(list.keys.map(k => env.KV.get(k.name, 'json')));
+        return jsonResponse(prompts.filter(Boolean));
       }
 
       if (method === 'POST') {
         const body: any = await request.json();
-        const existing = await dbQuery(env, () => 
-          env.DB.prepare('SELECT id FROM prompts WHERE module_key = ?').bind(body.moduleKey).first()
-        );
-        if (existing) {
-           await dbQuery(env, () => 
-             env.DB.prepare('UPDATE prompts SET content = ?, updated_at = ? WHERE module_key = ?')
-             .bind(body.content, body.updatedAt, body.moduleKey).run()
-           );
-        } else {
-           await dbQuery(env, () => 
-             env.DB.prepare('INSERT INTO prompts (id, module_key, content, updated_at) VALUES (?, ?, ?, ?)')
-             .bind(Date.now().toString(), body.moduleKey, body.content, body.updatedAt).run()
-           );
-        }
+        // Use moduleKey as part of the KV key
+        const key = `prompt:${body.moduleKey}`;
+        
+        // Ensure ID exists
+        const payload = {
+            id: body.id || Date.now().toString(),
+            moduleKey: body.moduleKey,
+            content: body.content,
+            updatedAt: body.updatedAt || Date.now()
+        };
+        
+        await env.KV.put(key, JSON.stringify(payload));
         return jsonResponse({ success: true });
       }
     }
@@ -297,31 +253,3 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     return errorResponse(err.message || 'Internal Server Error', 500);
   }
 };
-
-// Helpers to map DB columns (snake_case) to App types (camelCase)
-function mapProjectFromDb(row: any) {
-  return {
-    id: row.id,
-    userId: row.user_id,
-    name: row.name,
-    creative_plan: row.creative_plan, // Keep internal DB mapping correct if needed, but output object should use camelCase
-    creativePlan: row.creative_plan,
-    storyboardZh: JSON.parse(row.storyboard_zh || '[]'),
-    storyboardEn: JSON.parse(row.storyboard_en || '[]'),
-    grid3x3Zh: row.grid_3x3_zh,
-    grid3x3En: row.grid_3x3_en,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  };
-}
-
-function mapKeyFromDb(row: any) {
-  return {
-    id: row.id,
-    userId: row.user_id,
-    label: row.label,
-    key: row.key_value,
-    isDefault: row.is_default === 1,
-    createdAt: row.created_at
-  };
-}
