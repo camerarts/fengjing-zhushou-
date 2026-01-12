@@ -124,7 +124,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const buffer = base64ToUint8Array(base64Data);
 
       // Upload to R2
-      await env.BUCKET.put(filename, buffer, {
+      await env.BUCKET.put(filename, buffer.buffer, {
         httpMetadata: { contentType: mimeType }
       });
 

@@ -430,6 +430,11 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             : 'bg-slate-900/80 backdrop-blur-md border-white/10 text-slate-400 hover:border-white/20 hover:bg-slate-800 hover:-translate-y-1 z-10'
           }`}
       >
+        {/* Number Badge (Top Left) */}
+        <div className="absolute -top-3 -left-3 w-8 h-8 bg-red-600 text-white rounded-full flex items-center justify-center font-bold text-sm shadow-lg border-2 border-slate-950 z-30 font-mono">
+            {id}
+        </div>
+
         {/* Status Dot */}
         {isDone && <div className="absolute -top-2 -right-2 bg-green-500 text-white p-1 rounded-full shadow-lg"><Check size={12} strokeWidth={3} /></div>}
         
@@ -441,11 +446,6 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
         <div className={`font-bold text-lg tracking-tight mb-1 ${isActive ? 'text-white' : 'text-slate-200'}`}>{label}</div>
         <div className="text-xs text-slate-500 leading-tight mb-2">{desc}</div>
         
-        {/* Step Badge */}
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-950 border border-white/10 text-slate-500 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full">
-            STEP 0{id}
-        </div>
-
         {/* Generate Button (Bottom Right) */}
         {onGenerate && (
             <button
