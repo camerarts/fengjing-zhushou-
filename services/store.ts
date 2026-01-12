@@ -1,4 +1,4 @@
-import { Project, KeyItem, PromptConfig, User } from '../types';
+import { Project, KeyItem, ModelItem, PromptConfig, User } from '../types';
 import { DEFAULT_SYSTEM_PROMPT, MOCK_USER } from '../constants';
 
 const STORAGE_KEYS = {
@@ -135,13 +135,7 @@ export const getProjects = async (): Promise<Project[]> => {
   }
 };
 
-/**
- * 创建或更新项目
- * @param project 项目对象
- * @param forceCreate 如果为 true，则跳过存在性检查，直接尝试 POST (用于新建项目优化)
- */
 export const saveProject = async (project: Project, forceCreate: boolean = false) => {
-  // 优化：如果是明确的新建操作，直接 POST，减少一次 GET 请求
   if (forceCreate) {
      return await fetchAPI('/projects', {
       method: 'POST',
@@ -149,7 +143,6 @@ export const saveProject = async (project: Project, forceCreate: boolean = false
     });
   }
 
-  // 旧逻辑：先检查后更新 (用于保存现有项目)
   let isNew = false;
   try {
     await fetchAPI<Project>(`/projects/${project.id}`);
@@ -157,7 +150,7 @@ export const saveProject = async (project: Project, forceCreate: boolean = false
     if (e instanceof ApiError && e.status === 404) {
       isNew = true;
     } else {
-      throw e; // 网络错误或 500 必须抛出
+      throw e; 
     }
   }
   
@@ -196,23 +189,19 @@ export const getApiKeys = async (): Promise<KeyItem[]> => {
 };
 
 export const saveApiKey = async (keyItem: KeyItem) => {
-  try {
-    const keys = await getApiKeys();
-    const exists = keys.find(k => k.id === keyItem.id);
-    
-    if (exists) {
-      await fetchAPI(`/keys/${keyItem.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(keyItem),
-      });
-    } else {
-      await fetchAPI('/keys', {
-        method: 'POST',
-        body: JSON.stringify(keyItem),
-      });
-    }
-  } catch (e) {
-    throw e;
+  const keys = await getApiKeys();
+  const exists = keys.find(k => k.id === keyItem.id);
+  
+  if (exists) {
+    await fetchAPI(`/keys/${keyItem.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(keyItem),
+    });
+  } else {
+    await fetchAPI('/keys', {
+      method: 'POST',
+      body: JSON.stringify(keyItem),
+    });
   }
 };
 
@@ -228,6 +217,46 @@ export const getDefaultKey = async (): Promise<string | null> => {
   } catch (e) {
     return null;
   }
+};
+
+// --- Models (Async) ---
+export const getModels = async (): Promise<ModelItem[]> => {
+  try {
+    return await fetchAPI<ModelItem[]>('/models');
+  } catch (e) {
+    return [];
+  }
+};
+
+export const saveModel = async (modelItem: ModelItem) => {
+  const models = await getModels();
+  const exists = models.find(m => m.id === modelItem.id);
+
+  if (exists) {
+      await fetchAPI(`/models/${modelItem.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(modelItem),
+      });
+  } else {
+      await fetchAPI('/models', {
+          method: 'POST',
+          body: JSON.stringify(modelItem),
+      });
+  }
+};
+
+export const deleteModel = async (id: string) => {
+  await fetchAPI(`/models/${id}`, { method: 'DELETE' });
+};
+
+export const getDefaultModel = async (): Promise<string | null> => {
+    try {
+        const models = await getModels();
+        const def = models.find(m => m.isDefault);
+        return def ? def.modelId : (models.length > 0 ? models[0].modelId : null);
+    } catch (e) {
+        return null;
+    }
 };
 
 // --- Prompts (Async) ---

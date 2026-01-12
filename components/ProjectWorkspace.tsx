@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Project } from '../types';
 import { getProjectById, saveProject, getSystemPrompt } from '../services/store';
-import { generateStoryboardContent, generate3x3GridInstructions } from '../services/geminiService';
+import { generateStoryboardContent } from '../services/geminiService';
 import { GRID_PREFIX_CN, GRID_PREFIX_EN } from '../constants';
 import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, ChevronLeft, Maximize2, Minus, Plus as PlusIcon, RotateCcw, Play } from 'lucide-react';
 import { useParams } from 'react-router-dom';
@@ -137,10 +137,14 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
     setLoadingStep('grid');
 
     try {
-      const res = await generate3x3GridInstructions(sbCn, sbEn);
+      // FRONTEND PROCESSING ONLY
+      // No API calls here. We just format the existing text.
       
-      const finalCn = `${GRID_PREFIX_CN}\n${res.cn}`;
-      const finalEn = `${GRID_PREFIX_EN}\n${res.en}`;
+      const cnInstructions = sbCn.map((t, i) => `${i + 1}. ${t}`).join('\n');
+      const enInstructions = sbEn.map((t, i) => `${i + 1}. ${t}`).join('\n');
+      
+      const finalCn = `${GRID_PREFIX_CN}\n${cnInstructions}`;
+      const finalEn = `${GRID_PREFIX_EN}\n${enInstructions}`;
       
       setGridCn(finalCn);
       setGridEn(finalEn);

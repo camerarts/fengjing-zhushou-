@@ -86,8 +86,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           return jsonResponse(project);
         } else {
           // List All
-          // KV list returns keys, we need to fetch values or assume we list keys.
-          // For small app, we can list keys then fetch values in parallel.
           const list = await env.KV.list({ prefix: 'project:' });
           const keys = list.keys;
           
@@ -96,7 +94,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             keys.map(key => env.KV.get(key.name, 'json'))
           );
           
-          // Filter out nulls and sort by updatedAt desc (JavaScript sort)
+          // Filter out nulls and sort by updatedAt desc
           const validProjects = projects
             .filter((p): p is any => p !== null)
             .sort((a: any, b: any) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -130,10 +128,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       if (method === 'PUT' && id) {
         const body: any = await request.json();
-        // Since KV is key-value, PUT is same as overwriting.
-        // Usually we fetch existing to merge, but the frontend sends full object often.
-        // Let's assume frontend sends full object or we merge.
-        // For safety, let's fetch, merge, save.
         const existing: any = await env.KV.get(`project:${id}`, 'json');
         if (!existing) return errorResponse('Project not found', 404);
 
@@ -168,7 +162,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       if (method === 'POST') {
         const body: any = await request.json();
         
-        // Handle "Default" logic manually since KV has no WHERE clause
         if (body.isDefault) {
            const list = await env.KV.list({ prefix: 'key:' });
            for (const k of list.keys) {
@@ -213,6 +206,65 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
     }
 
+    // --- AI MODELS ---
+    // Key format: model:<id>
+    if (resource === 'models') {
+        if (method === 'GET') {
+            const list = await env.KV.list({ prefix: 'model:' });
+            const models = await Promise.all(list.keys.map(k => env.KV.get(k.name, 'json')));
+            const validModels = models
+                .filter((m): m is any => m !== null)
+                .sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
+            return jsonResponse(validModels);
+        }
+
+        if (method === 'POST') {
+            const body: any = await request.json();
+            
+            if (body.isDefault) {
+                const list = await env.KV.list({ prefix: 'model:' });
+                for (const k of list.keys) {
+                    const item: any = await env.KV.get(k.name, 'json');
+                    if (item && item.isDefault) {
+                        item.isDefault = false;
+                        await env.KV.put(k.name, JSON.stringify(item));
+                    }
+                }
+            }
+
+            await env.KV.put(`model:${body.id}`, JSON.stringify(body));
+            return jsonResponse({ success: true }, 201);
+        }
+
+        if (method === 'PUT' && id) {
+            const body: any = await request.json();
+            const existing: any = await env.KV.get(`model:${id}`, 'json');
+            if (!existing) return errorResponse('Model not found', 404);
+
+            if (body.isDefault) {
+                const list = await env.KV.list({ prefix: 'model:' });
+                for (const k of list.keys) {
+                    if (k.name !== `model:${id}`) {
+                        const item: any = await env.KV.get(k.name, 'json');
+                        if (item && item.isDefault) {
+                            item.isDefault = false;
+                            await env.KV.put(k.name, JSON.stringify(item));
+                        }
+                    }
+                }
+            }
+            
+            const updated = { ...existing, ...body };
+            await env.KV.put(`model:${id}`, JSON.stringify(updated));
+            return jsonResponse({ success: true });
+        }
+
+        if (method === 'DELETE' && id) {
+            await env.KV.delete(`model:${id}`);
+            return jsonResponse({ success: true });
+        }
+    }
+
     // --- PROMPTS ---
     // Key format: prompt:<moduleKey>
     if (resource === 'prompts') {
@@ -220,9 +272,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const moduleKey = url.searchParams.get('moduleKey');
         if (moduleKey) {
            const result = await env.KV.get(`prompt:${moduleKey}`, 'json');
-           return jsonResponse(result || null); // Return null if not found, frontend handles defaults
+           return jsonResponse(result || null); 
         }
-        // List all prompts not strictly implemented in frontend, but logic is here:
         const list = await env.KV.list({ prefix: 'prompt:' });
         const prompts = await Promise.all(list.keys.map(k => env.KV.get(k.name, 'json')));
         return jsonResponse(prompts.filter(Boolean));
@@ -230,17 +281,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       if (method === 'POST') {
         const body: any = await request.json();
-        // Use moduleKey as part of the KV key
         const key = `prompt:${body.moduleKey}`;
-        
-        // Ensure ID exists
         const payload = {
             id: body.id || Date.now().toString(),
             moduleKey: body.moduleKey,
             content: body.content,
             updatedAt: body.updatedAt || Date.now()
         };
-        
         await env.KV.put(key, JSON.stringify(payload));
         return jsonResponse({ success: true });
       }

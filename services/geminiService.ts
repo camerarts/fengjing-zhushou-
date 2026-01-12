@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { getDefaultKey } from './store';
+import { getDefaultKey, getDefaultModel } from './store';
 
 // Helper to get client
 const getClient = async (apiKey?: string) => {
@@ -13,12 +13,19 @@ const getClient = async (apiKey?: string) => {
   return new GoogleGenAI({ apiKey: key });
 };
 
+// Helper to get model ID
+const getModelId = async () => {
+    const storedModel = await getDefaultModel();
+    return storedModel || 'gemini-3-flash-preview';
+};
+
 export const generateStoryboardContent = async (
   creativePlan: string,
   systemPrompt: string,
   userApiKey?: string
 ): Promise<{ cn: string[]; en: string[] }> => {
   const client = await getClient(userApiKey);
+  const modelId = await getModelId();
 
   const prompt = `
     基于以下创意方案，生成 9 个独特的分镜画面描述。
@@ -52,7 +59,7 @@ export const generateStoryboardContent = async (
 
   try {
     const response = await client.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: modelId,
       contents: prompt,
       config: {
         systemInstruction: systemPrompt,
@@ -93,60 +100,5 @@ export const generateStoryboardContent = async (
   }
 };
 
-export const generate3x3GridInstructions = async (
-  framesCn: string[],
-  framesEn: string[],
-  userApiKey?: string
-): Promise<{ cn: string; en: string }> => {
-  const client = await getClient(userApiKey);
-  
-  const prompt = `
-    我有 9 个分镜画面描述。我需要将它们格式化为用于 3x3 网格图像生成的指令列表。
-    
-    来源中文：${JSON.stringify(framesCn)}
-    来源英文：${JSON.stringify(framesEn)}
-
-    任务：
-    1. 对于中文版本，将每一帧概括为简练的视觉指令（例如：“1. 镜头推进，主角微笑”）。
-    2. 对于英文版本，做同样的处理（例如：“1. Camera zoom in, protagonist smiles”）。
-    3. 严格返回一个 JSON 对象，包含 'cn_instructions'（单个字符串，包含换行符）和 'en_instructions'（单个字符串，包含换行符）。
-    4. 不要添加前缀文本，只需要 1-9 的编号列表。
-  `;
-
-  const responseSchema = {
-    type: Type.OBJECT,
-    properties: {
-      cn_instructions: { type: Type.STRING },
-      en_instructions: { type: Type.STRING },
-    },
-    required: ["cn_instructions", "en_instructions"],
-  };
-
-  try {
-    const response = await client.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: responseSchema,
-      },
-    });
-    
-    const text = response.text;
-    if(!text) throw new Error("3x3 网格生成返回为空");
-    
-    const json = JSON.parse(text);
-    return {
-      cn: json.cn_instructions,
-      en: json.en_instructions
-    };
-
-  } catch (error) {
-    console.error("Gemini Grid Gen Error", error);
-    // Fallback if AI fails: just join the raw strings
-    return {
-      cn: framesCn.map((f, i) => `${i + 1}. ${f}`).join('\n'),
-      en: framesEn.map((f, i) => `${i + 1}. ${f}`).join('\n')
-    };
-  }
-};
+// Frontend-only grid generation no longer requires an API call here.
+// The previous function is removed to enforce frontend processing.

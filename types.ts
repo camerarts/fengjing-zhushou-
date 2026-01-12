@@ -26,6 +26,15 @@ export interface KeyItem {
   createdAt: number;
 }
 
+export interface ModelItem {
+  id: string;
+  userId: string;
+  label: string; // Display name e.g. "Gemini 1.5 Pro"
+  modelId: string; // API Model ID e.g. "gemini-1.5-pro"
+  isDefault: boolean;
+  createdAt: number;
+}
+
 export interface PromptConfig {
   id: string;
   moduleKey: string; // e.g., 'storyboard_generate'
