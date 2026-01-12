@@ -60,6 +60,9 @@ const Layout: React.FC<LayoutProps> = ({
 
   // Check for project detail pages to highlight Dashboard
   const isDashboardActive = location.pathname === '/dashboard' || location.pathname.startsWith('/project/');
+  
+  // Detect if we are in the workspace view to remove padding constraints
+  const isWorkspaceView = location.pathname.startsWith('/project/');
 
   return (
     <div className="flex h-screen font-sans overflow-hidden bg-transparent">
@@ -134,11 +137,17 @@ const Layout: React.FC<LayoutProps> = ({
           <button className="text-slate-400" onClick={() => {}}><Menu size={24} /></button>
         </div>
         
-        <div className="flex-1 overflow-y-auto p-4 md:p-10 scroll-smooth">
-          <div className="max-w-7xl mx-auto h-full flex flex-col animate-fade-in">
-             {children}
-          </div>
-        </div>
+        {isWorkspaceView ? (
+             <div className="flex-1 relative w-full h-full overflow-hidden animate-fade-in">
+                 {children}
+             </div>
+        ) : (
+            <div className="flex-1 overflow-y-auto p-4 md:p-10 scroll-smooth">
+              <div className="max-w-7xl mx-auto h-full flex flex-col animate-fade-in">
+                 {children}
+              </div>
+            </div>
+        )}
       </main>
     </div>
   );
