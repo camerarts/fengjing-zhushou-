@@ -8,6 +8,16 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
   },
+  server: {
+    proxy: {
+      // Proxy /api requests to the Wrangler local dev server default port
+      '/api': {
+        target: 'http://127.0.0.1:8788',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+  },
   define: {
     // Replaces process.env.API_KEY with the actual string value during build
     // If not set, defaults to empty string to prevent "process is not defined" error in browser

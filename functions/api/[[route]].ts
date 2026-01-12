@@ -45,8 +45,49 @@ interface Env {
   DB: D1Database;
 }
 
+// 4.4 鉴权与 CORS 头 helper
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
+// Helper for JSON responses
+const jsonResponse = (data: any, status = 200) => {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      ...corsHeaders
+    }
+  });
+};
+
+// Helper for Error responses
+const errorResponse = (message: string, status = 500, traceId?: string) => {
+  return jsonResponse({ 
+    ok: false, 
+    error: message,
+    traceId 
+  }, status);
+};
+
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env, params } = context;
+  
+  // Handle CORS Preflight
+  if (request.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders
+    });
+  }
+
+  // 4.3 D1 Binding Check
+  if (!env.DB) {
+    return errorResponse("Database binding (DB) not found. Check wrangler.toml.", 500);
+  }
+
   const url = new URL(request.url);
   const path = url.pathname.replace('/api/', '').split('/'); // ['projects'] or ['projects', '123']
   const resource = path[0];
@@ -60,25 +101,37 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         if (id) {
           const stmt = env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(id);
           const result = await stmt.first();
-          if (!result) return new Response('Not Found', { status: 404 });
-          return Response.json(mapProjectFromDb(result));
+          if (!result) return errorResponse('Project not found', 404);
+          return jsonResponse(mapProjectFromDb(result));
         } else {
           const { results } = await env.DB.prepare('SELECT * FROM projects ORDER BY updated_at DESC').all();
-          return Response.json(results.map(mapProjectFromDb));
+          return jsonResponse(results.map(mapProjectFromDb));
         }
       } 
       
       if (method === 'POST') {
         const body: any = await request.json();
-        await env.DB.prepare(`
-          INSERT INTO projects (id, user_id, name, creative_plan, storyboard_zh, storyboard_en, grid_3x3_zh, grid_3x3_en, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(
-          body.id, body.userId, body.name, body.creativePlan, 
-          JSON.stringify(body.storyboardZh), JSON.stringify(body.storyboardEn), 
-          body.grid3x3Zh, body.grid3x3En, body.createdAt, body.updatedAt
-        ).run();
-        return Response.json({ success: true });
+        
+        // 简单校验
+        if (!body.name || !body.userId) {
+            return errorResponse("Missing required fields: name, userId", 400);
+        }
+
+        try {
+            await env.DB.prepare(`
+            INSERT INTO projects (id, user_id, name, creative_plan, storyboard_zh, storyboard_en, grid_3x3_zh, grid_3x3_en, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).bind(
+            body.id, body.userId, body.name, body.creativePlan || '', 
+            JSON.stringify(body.storyboardZh || []), JSON.stringify(body.storyboardEn || []), 
+            body.grid3x3Zh || '', body.grid3x3En || '', body.createdAt || Date.now(), body.updatedAt || Date.now()
+            ).run();
+        } catch (dbErr: any) {
+            console.error("DB Insert Error", dbErr);
+            return errorResponse("Database insert failed: " + dbErr.message, 500);
+        }
+        
+        return jsonResponse({ success: true, id: body.id }, 201);
       }
 
       if (method === 'PUT' && id) {
@@ -92,12 +145,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           JSON.stringify(body.storyboardZh), JSON.stringify(body.storyboardEn), 
           body.grid3x3Zh, body.grid3x3En, body.updatedAt, id
         ).run();
-        return Response.json({ success: true });
+        return jsonResponse({ success: true });
       }
 
       if (method === 'DELETE' && id) {
         await env.DB.prepare('DELETE FROM projects WHERE id = ?').bind(id).run();
-        return Response.json({ success: true });
+        return jsonResponse({ success: true });
       }
     }
 
@@ -105,7 +158,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (resource === 'keys') {
       if (method === 'GET') {
         const { results } = await env.DB.prepare('SELECT * FROM api_keys ORDER BY created_at DESC').all();
-        return Response.json(results.map(mapKeyFromDb));
+        return jsonResponse(results.map(mapKeyFromDb));
       }
 
       if (method === 'POST') {
@@ -118,23 +171,22 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           INSERT INTO api_keys (id, user_id, label, key_value, is_default, created_at)
           VALUES (?, ?, ?, ?, ?, ?)
         `).bind(body.id, body.userId, body.label, body.key, body.isDefault ? 1 : 0, body.createdAt).run();
-        return Response.json({ success: true });
+        return jsonResponse({ success: true }, 201);
       }
 
       if (method === 'PUT' && id) {
-         // Mostly used for setting default
          const body: any = await request.json();
          if (body.isDefault) {
            await env.DB.prepare('UPDATE api_keys SET is_default = 0').run();
          }
          await env.DB.prepare('UPDATE api_keys SET is_default = ? WHERE id = ?')
             .bind(body.isDefault ? 1 : 0, id).run();
-         return Response.json({ success: true });
+         return jsonResponse({ success: true });
       }
 
       if (method === 'DELETE' && id) {
         await env.DB.prepare('DELETE FROM api_keys WHERE id = ?').bind(id).run();
-        return Response.json({ success: true });
+        return jsonResponse({ success: true });
       }
     }
 
@@ -144,15 +196,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const moduleKey = url.searchParams.get('moduleKey');
         if (moduleKey) {
            const result = await env.DB.prepare('SELECT * FROM prompts WHERE module_key = ?').bind(moduleKey).first();
-           return Response.json(result || null);
+           return jsonResponse(result || null);
         }
         const { results } = await env.DB.prepare('SELECT * FROM prompts').all();
-        return Response.json(results);
+        return jsonResponse(results);
       }
 
       if (method === 'POST') {
         const body: any = await request.json();
-        // Upsert logic
         const existing = await env.DB.prepare('SELECT id FROM prompts WHERE module_key = ?').bind(body.moduleKey).first();
         if (existing) {
            await env.DB.prepare('UPDATE prompts SET content = ?, updated_at = ? WHERE module_key = ?')
@@ -161,14 +212,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
            await env.DB.prepare('INSERT INTO prompts (id, module_key, content, updated_at) VALUES (?, ?, ?, ?)')
              .bind(Date.now().toString(), body.moduleKey, body.content, body.updatedAt).run();
         }
-        return Response.json({ success: true });
+        return jsonResponse({ success: true });
       }
     }
 
-    return new Response('Method Not Allowed', { status: 405 });
+    return errorResponse('Method Not Allowed', 405);
 
   } catch (err: any) {
-    return new Response(err.message, { status: 500 });
+    console.error("API Global Error", err);
+    return errorResponse(err.message || 'Internal Server Error', 500);
   }
 };
 
