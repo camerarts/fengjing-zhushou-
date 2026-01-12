@@ -1,17 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { getProjects, deleteProject } from '../services/store';
 import { Project } from '../types';
-import { Clock, FolderOpen, Trash2, Search, Loader2 } from 'lucide-react';
+import { Clock, FolderOpen, Trash2, Search, Loader2, FileText, ChevronRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface ProjectListProps {
-  onOpenProject: (id: string) => void;
   onCreateProject?: () => void;
 }
 
-const ProjectList: React.FC<ProjectListProps> = ({ onOpenProject, onCreateProject }) => {
+const ProjectList: React.FC<ProjectListProps> = ({ onCreateProject }) => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   const fetchProjects = async () => {
     setLoading(true);
@@ -72,37 +73,65 @@ const ProjectList: React.FC<ProjectListProps> = ({ onOpenProject, onCreateProjec
           <p className="text-sm">请点击左侧边栏“新建项目”开始创作</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
-          {filtered.map(project => (
-            <div 
-              key={project.id}
-              onClick={() => onOpenProject(project.id)}
-              className="group relative bg-slate-800/40 backdrop-blur-xl border border-white/10 hover:border-brand-500/30 rounded-3xl p-6 cursor-pointer transition-all hover:-translate-y-2 hover:shadow-2xl hover:shadow-brand-900/10 flex flex-col h-56 overflow-hidden"
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
-              
-              <div className="flex-1 relative z-10">
-                <h3 className="text-xl font-bold text-white mb-3 line-clamp-1 group-hover:text-brand-300 transition-colors">{project.name}</h3>
-                <p className="text-slate-400 text-sm line-clamp-3 leading-relaxed">
-                  {project.creativePlan || <span className="italic opacity-50">暂无描述...</span>}
-                </p>
-              </div>
-              
-              <div className="mt-4 pt-4 border-t border-white/5 flex items-center justify-between text-xs text-slate-500 relative z-10">
-                <div className="flex items-center gap-1.5 bg-black/20 px-2 py-1 rounded-md">
-                  <Clock size={12} />
-                  <span>{new Date(project.updatedAt).toLocaleDateString()}</span>
-                </div>
-                <button 
-                  onClick={(e) => handleDelete(e, project.id)}
-                  className="p-2 text-slate-400 hover:bg-red-500/20 hover:text-red-400 rounded-full transition-colors"
-                  title="删除项目"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-          ))}
+        <div className="flex-1 overflow-hidden bg-slate-900/40 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl">
+           <div className="overflow-x-auto h-full">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-white/10 bg-white/5 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  <th className="px-6 py-4">项目名称</th>
+                  <th className="px-6 py-4 w-1/3">创意摘要</th>
+                  <th className="px-6 py-4">最后更新</th>
+                  <th className="px-6 py-4 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {filtered.map(project => (
+                  <tr 
+                    key={project.id}
+                    onClick={() => navigate(`/project/${project.id}`)}
+                    className="group hover:bg-white/5 transition-colors cursor-pointer"
+                  >
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 flex items-center justify-center text-brand-400 group-hover:scale-110 transition-transform shadow-lg">
+                           <FileText size={18} />
+                        </div>
+                        <div>
+                          <div className="font-bold text-white text-sm group-hover:text-brand-300 transition-colors">{project.name}</div>
+                          <div className="text-[10px] text-slate-500 font-mono">ID: {project.id.slice(-6)}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <p className="text-sm text-slate-400 line-clamp-2 leading-relaxed">
+                        {project.creativePlan || <span className="italic opacity-30">暂无描述...</span>}
+                      </p>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2 text-xs text-slate-500 bg-black/20 px-3 py-1.5 rounded-full w-fit">
+                        <Clock size={12} />
+                        <span>{new Date(project.updatedAt).toLocaleString()}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-end gap-2">
+                        <button 
+                          onClick={(e) => handleDelete(e, project.id)}
+                          className="p-2 text-slate-500 hover:bg-red-500/10 hover:text-red-400 rounded-lg transition-colors group/del"
+                          title="删除项目"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                        <div className="p-2 text-slate-600 group-hover:text-white transition-colors">
+                           <ChevronRight size={16} />
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+           </div>
         </div>
       )}
     </div>

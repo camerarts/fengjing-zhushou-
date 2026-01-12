@@ -8,12 +8,10 @@ import {
   Menu,
   Video
 } from 'lucide-react';
-import { AppRoute } from '../types';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { logout } from '../services/store';
 
 interface LayoutProps {
-  currentRoute: AppRoute;
-  onNavigate: (route: AppRoute) => void;
   children: React.ReactNode;
   onCreateProject: () => void;
 }
@@ -45,15 +43,23 @@ const SidebarItem = ({
 );
 
 const Layout: React.FC<LayoutProps> = ({ 
-  currentRoute, 
-  onNavigate, 
   children,
   onCreateProject
 }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const handleLogout = () => {
     logout();
-    onNavigate(AppRoute.LANDING);
+    navigate('/');
   };
+
+  const isActive = (path: string) => {
+    return location.pathname === path;
+  };
+
+  // Check for project detail pages to highlight Dashboard
+  const isDashboardActive = location.pathname === '/dashboard' || location.pathname.startsWith('/project/');
 
   return (
     <div className="flex h-screen font-sans overflow-hidden bg-transparent">
@@ -65,7 +71,11 @@ const Layout: React.FC<LayoutProps> = ({
         <div className="relative z-10 flex flex-col h-full items-center py-4">
             {/* Header */}
             <div className="mb-6 flex flex-col items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center shadow-lg shadow-brand-500/20 border border-white/10 group cursor-pointer hover:scale-105 transition-transform" title="视频分镜助手">
+                <div 
+                    onClick={() => navigate('/dashboard')}
+                    className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center shadow-lg shadow-brand-500/20 border border-white/10 group cursor-pointer hover:scale-105 transition-transform" 
+                    title="视频分镜助手"
+                >
                     <Video size={20} className="text-white" />
                 </div>
             </div>
@@ -87,20 +97,20 @@ const Layout: React.FC<LayoutProps> = ({
             <SidebarItem 
                 icon={LayoutDashboard} 
                 label="项目" 
-                active={currentRoute === AppRoute.DASHBOARD} 
-                onClick={() => onNavigate(AppRoute.DASHBOARD)} 
+                active={isDashboardActive} 
+                onClick={() => navigate('/dashboard')} 
             />
             <SidebarItem 
                 icon={Key} 
                 label="密钥" 
-                active={currentRoute === AppRoute.KEYS} 
-                onClick={() => onNavigate(AppRoute.KEYS)} 
+                active={isActive('/keys')} 
+                onClick={() => navigate('/keys')} 
             />
             <SidebarItem 
                 icon={MessageSquare} 
                 label="提示词" 
-                active={currentRoute === AppRoute.PROMPTS} 
-                onClick={() => onNavigate(AppRoute.PROMPTS)} 
+                active={isActive('/prompts')} 
+                onClick={() => navigate('/prompts')} 
             />
             </nav>
 

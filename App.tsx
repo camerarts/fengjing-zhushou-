@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Landing from './components/Landing';
 import Layout from './components/Layout';
 import ProjectList from './components/ProjectList';
@@ -6,14 +6,24 @@ import ProjectWorkspace from './components/ProjectWorkspace';
 import KeyManagement from './components/KeyManagement';
 import PromptManagement from './components/PromptManagement';
 import GlassModal from './components/GlassModal';
-import { AppRoute } from './types';
 import { getCurrentUser, login, saveProject } from './services/store';
 import { AlertCircle } from 'lucide-react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 
-const App: React.FC = () => {
-  const [route, setRoute] = useState<AppRoute>(AppRoute.LANDING);
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+const AuthGuard = ({ children }: { children: React.ReactElement }) => {
+  const user = getCurrentUser();
+  if (!user) return <Navigate to="/" replace />;
+  return children;
+};
+
+const PublicOnly = ({ children }: { children: React.ReactElement }) => {
+   const user = getCurrentUser();
+   if (user) return <Navigate to="/dashboard" replace />;
+   return children;
+}
+
+const AppContent: React.FC = () => {
+  const navigate = useNavigate();
   
   // Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -24,21 +34,9 @@ const App: React.FC = () => {
   // 3.4 错误显示: UI 错误信息状态
   const [createError, setCreateError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Check auth
-    const user = getCurrentUser();
-    if (user) {
-      setIsAuthenticated(true);
-      if (route === AppRoute.LANDING) {
-        setRoute(AppRoute.DASHBOARD);
-      }
-    }
-  }, []);
-
   const handleLogin = () => {
     login();
-    setIsAuthenticated(true);
-    setRoute(AppRoute.DASHBOARD);
+    navigate('/dashboard');
   };
 
   const openCreateModal = () => {
@@ -86,9 +84,8 @@ const App: React.FC = () => {
       await saveProject(newProject, true);
       
       // 成功处理
-      setActiveProjectId(newId);
-      setRoute(AppRoute.PROJECT_WORKSPACE);
       setIsCreateModalOpen(false);
+      navigate(`/project/${newId}`);
     } catch (error: any) {
       console.error("Create project failed:", error);
       // 3.4 错误显示到 UI
@@ -99,41 +96,50 @@ const App: React.FC = () => {
     }
   };
 
-  const handleOpenProject = (id: string) => {
-    setActiveProjectId(id);
-    setRoute(AppRoute.PROJECT_WORKSPACE);
-  };
-
-  // --- Routing Logic ---
-
-  if (!isAuthenticated || route === AppRoute.LANDING) {
-    return <Landing onLogin={handleLogin} />;
-  }
-
-  const renderContent = () => {
-    switch (route) {
-      case AppRoute.DASHBOARD:
-        return <ProjectList onOpenProject={handleOpenProject} onCreateProject={openCreateModal} />;
-      case AppRoute.KEYS:
-        return <KeyManagement />;
-      case AppRoute.PROMPTS:
-        return <PromptManagement />;
-      case AppRoute.PROJECT_WORKSPACE:
-        return activeProjectId ? <ProjectWorkspace projectId={activeProjectId} /> : <ProjectList onOpenProject={handleOpenProject} onCreateProject={openCreateModal} />;
-      default:
-        return <ProjectList onOpenProject={handleOpenProject} onCreateProject={openCreateModal} />;
-    }
-  };
-
   return (
     <>
-      <Layout 
-        currentRoute={route} 
-        onNavigate={setRoute} 
-        onCreateProject={openCreateModal}
-      >
-        {renderContent()}
-      </Layout>
+      <Routes>
+        <Route path="/" element={
+           <PublicOnly>
+             <Landing onLogin={handleLogin} />
+           </PublicOnly>
+        } />
+        
+        {/* Route Definitions Wrapped in Layout */}
+        <Route path="/dashboard" element={
+            <AuthGuard>
+                <Layout onCreateProject={openCreateModal}>
+                    <ProjectList onCreateProject={openCreateModal} />
+                </Layout>
+            </AuthGuard>
+        } />
+        
+        <Route path="/keys" element={
+            <AuthGuard>
+                <Layout onCreateProject={openCreateModal}>
+                    <KeyManagement />
+                </Layout>
+            </AuthGuard>
+        } />
+        
+        <Route path="/prompts" element={
+            <AuthGuard>
+                <Layout onCreateProject={openCreateModal}>
+                    <PromptManagement />
+                </Layout>
+            </AuthGuard>
+        } />
+        
+        <Route path="/project/:id" element={
+            <AuthGuard>
+                <Layout onCreateProject={openCreateModal}>
+                    <ProjectWorkspace />
+                </Layout>
+            </AuthGuard>
+        } />
+        
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
 
       <GlassModal 
         isOpen={isCreateModalOpen} 
@@ -195,6 +201,14 @@ const App: React.FC = () => {
         </form>
       </GlassModal>
     </>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <BrowserRouter>
+      <AppContent />
+    </BrowserRouter>
   );
 };
 

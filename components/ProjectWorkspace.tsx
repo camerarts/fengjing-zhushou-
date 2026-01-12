@@ -3,15 +3,19 @@ import { Project } from '../types';
 import { getProjectById, saveProject, getSystemPrompt } from '../services/store';
 import { generateStoryboardContent, generate3x3GridInstructions } from '../services/geminiService';
 import { GRID_PREFIX_CN, GRID_PREFIX_EN } from '../constants';
-import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, Maximize2, Minus, Plus as PlusIcon, RotateCcw } from 'lucide-react';
+import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, Maximize2, Minus, Plus as PlusIcon, RotateCcw, Play } from 'lucide-react';
+import { useParams } from 'react-router-dom';
 
 interface WorkspaceProps {
-  projectId: string;
+  projectId?: string; // Optional if not used directly
 }
 
 type Step = 'input' | 'storyboard' | 'grid';
 
-const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
+const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
+  const { id } = useParams<{ id: string }>();
+  const projectId = id;
+  
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState<string>(''); // 'storyboard' | 'grid'
@@ -25,7 +29,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
   const [viewState, setViewState] = useState({ x: 0, y: 0, scale: 1 });
   const [isDragging, setIsDragging] = useState(false);
   
-  // Refs for drag logic to avoid stale closures in event handlers
+  // Refs for drag logic
   const isDraggingRef = useRef(false);
   const lastMousePosRef = useRef({ x: 0, y: 0 });
   const dragStartPosRef = useRef({ x: 0, y: 0 });
@@ -40,6 +44,8 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
   const [copied, setCopied] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!projectId) return;
+
     setProject(null); // Clear previous
     getProjectById(projectId).then(p => {
         if (p) {
@@ -91,7 +97,11 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
   };
 
   const handleGenerateStoryboard = async () => {
-    if (!plan.trim()) return alert("请输入创意方案。");
+    if (!plan.trim()) {
+        if (!isPanelOpen) setIsPanelOpen(true);
+        setActiveStep('input');
+        return alert("请输入创意方案。");
+    }
     setLoading(true);
     setLoadingStep('storyboard');
     
@@ -107,6 +117,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
         setProject(updated);
       }
       setActiveStep('storyboard');
+      setIsPanelOpen(true); // Open panel to show result
     } catch (e: any) {
       alert("生成失败：" + e.message);
     } finally {
@@ -116,7 +127,11 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
   };
 
   const handleGenerateGrid = async () => {
-    if (sbCn.length === 0) return alert("请先生成分镜列表。");
+    if (sbCn.length === 0) {
+        if (!isPanelOpen) setIsPanelOpen(true);
+        setActiveStep('storyboard');
+        return alert("请先生成分镜列表。");
+    }
     setLoading(true);
     setLoadingStep('grid');
 
@@ -135,7 +150,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
         setProject(updated);
       }
       setActiveStep('grid');
-
+      setIsPanelOpen(true); // Open panel to show result
     } catch (e: any) {
       alert("网格生成失败：" + e.message);
     } finally {
@@ -152,10 +167,6 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
   // --- Canvas Interaction Handlers ---
 
   const handleWheel = (e: React.WheelEvent) => {
-    // Only zoom if not scrolling inside a panel (simple check: if target is part of canvas)
-    // Here we attach handler to main wrapper, so it should be fine.
-    // e.stopPropagation(); // Optional: might block page scroll if overflow hidden isn't enough
-    
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     setViewState(prev => {
         const newScale = Math.min(Math.max(prev.scale * delta, 0.2), 3.0);
@@ -204,6 +215,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
     setViewState({ x: 0, y: 0, scale: 1 });
   };
 
+  if (!projectId) return <div className="p-8 text-center text-slate-400">错误：未找到项目ID</div>;
   if (!project) return <div className="p-8 text-center text-slate-400 flex items-center justify-center h-full"><Loader2 className="animate-spin mr-2"/>正在加载项目数据...</div>;
 
   // Render Step Node (Canvas Item)
@@ -213,14 +225,25 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
     desc,
     icon: Icon, 
     isDone,
-    stepId
-  }: { id: number, label: string, desc: string, icon: any, isDone: boolean, stepId: Step }) => {
+    stepId,
+    onGenerate
+  }: { 
+    id: number, 
+    label: string, 
+    desc: string, 
+    icon: any, 
+    isDone: boolean, 
+    stepId: Step,
+    onGenerate?: () => void
+  }) => {
     const isActive = activeStep === stepId && isPanelOpen;
+    const isNodeLoading = loading && loadingStep === stepId;
+
     return (
       <div 
         onMouseDown={(e) => e.stopPropagation()} // Prevent pan start when interacting with node
         onClick={(e) => { e.stopPropagation(); handleStepClick(stepId); }}
-        className={`relative group flex flex-col items-center text-center p-6 w-56 rounded-3xl border transition-all duration-300 cursor-pointer shadow-2xl
+        className={`relative group flex flex-col items-center text-center p-6 w-56 rounded-3xl border transition-all duration-300 cursor-pointer shadow-2xl pb-10
           ${isActive 
             ? 'bg-slate-800 border-brand-500 ring-2 ring-brand-500/20 shadow-[0_0_50px_rgba(14,165,233,0.15)] z-20 scale-105' 
             : 'bg-slate-900/80 backdrop-blur-md border-white/10 text-slate-400 hover:border-white/20 hover:bg-slate-800 hover:-translate-y-1 z-10'
@@ -235,12 +258,31 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
         </div>
         
         <div className={`font-bold text-lg tracking-tight mb-1 ${isActive ? 'text-white' : 'text-slate-200'}`}>{label}</div>
-        <div className="text-xs text-slate-500 leading-tight">{desc}</div>
+        <div className="text-xs text-slate-500 leading-tight mb-2">{desc}</div>
         
         {/* Step Badge */}
         <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-950 border border-white/10 text-slate-500 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full">
             STEP 0{id}
         </div>
+
+        {/* Generate Button (Bottom Right) */}
+        {onGenerate && (
+            <button
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onGenerate();
+                }}
+                disabled={loading}
+                className={`absolute bottom-3 right-3 flex items-center gap-1 px-3 py-1.5 rounded-full text-[10px] font-bold transition-all shadow-lg border border-white/10
+                    ${isNodeLoading 
+                        ? 'bg-brand-500/20 text-brand-300 cursor-wait' 
+                        : 'bg-brand-600 hover:bg-brand-500 text-white hover:scale-105 active:scale-95'
+                    }`}
+            >
+                {isNodeLoading ? <Loader2 size={10} className="animate-spin" /> : <Zap size={10} />}
+                {isNodeLoading ? '生成中' : '立刻生成'}
+            </button>
+        )}
       </div>
     );
   };
@@ -333,7 +375,8 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
                 label="项目输入" 
                 desc="选题与创意方案" 
                 icon={LayoutTemplate} 
-                isDone={!!plan} 
+                isDone={!!plan}
+                // Step 1 is the start, no "Generate" button needed
             />
             <Connector />
             <CanvasNode 
@@ -343,6 +386,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
                 desc="9 帧详细画面" 
                 icon={FileText} 
                 isDone={sbCn.length > 0} 
+                onGenerate={handleGenerateStoryboard}
             />
             <Connector />
             <CanvasNode 
@@ -352,30 +396,32 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
                 desc="3x3 提示词" 
                 icon={Grid} 
                 isDone={!!gridCn} 
+                onGenerate={handleGenerateGrid}
             />
           </div>
       </div>
 
       {/* Right Drawer Panel (Overlay) */}
+      {/* Width reduced from md:w-[500px] to md:w-[350px] */}
       <div 
         onMouseDown={e => e.stopPropagation()} // Prevent events from bubbling to canvas
         onClick={(e) => e.stopPropagation()} 
-        className={`absolute top-0 right-0 h-full w-full md:w-[500px] bg-slate-900/95 backdrop-blur-2xl border-l border-white/10 shadow-2xl transition-transform duration-500 ease-out z-40 flex flex-col
+        className={`absolute top-0 right-0 h-full w-full md:w-[350px] bg-slate-900/95 backdrop-blur-2xl border-l border-white/10 shadow-2xl transition-transform duration-500 ease-out z-40 flex flex-col
           ${isPanelOpen ? 'translate-x-0' : 'translate-x-full'}`}
       >
          {/* Panel Header */}
-         <div className="h-16 flex items-center justify-between px-6 border-b border-white/5 bg-white/5">
-             <div className="flex items-center gap-2">
-                 {activeStep === 'input' && <LayoutTemplate size={18} className="text-brand-400"/>}
-                 {activeStep === 'storyboard' && <FileText size={18} className="text-brand-400"/>}
-                 {activeStep === 'grid' && <Grid size={18} className="text-brand-400"/>}
-                 <span className="font-bold text-white tracking-tight">
+         <div className="h-16 flex items-center justify-between px-6 border-b border-white/5 bg-white/5 shrink-0">
+             <div className="flex items-center gap-2 overflow-hidden">
+                 {activeStep === 'input' && <LayoutTemplate size={18} className="text-brand-400 shrink-0"/>}
+                 {activeStep === 'storyboard' && <FileText size={18} className="text-brand-400 shrink-0"/>}
+                 {activeStep === 'grid' && <Grid size={18} className="text-brand-400 shrink-0"/>}
+                 <span className="font-bold text-white tracking-tight truncate text-sm">
                     {activeStep === 'input' && '创意方案输入'}
                     {activeStep === 'storyboard' && '分镜脚本 (9帧)'}
                     {activeStep === 'grid' && '视觉网格 (3x3)'}
                  </span>
              </div>
-             <button onClick={() => setIsPanelOpen(false)} className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors">
+             <button onClick={() => setIsPanelOpen(false)} className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors shrink-0">
                  <X size={20} />
              </button>
          </div>
