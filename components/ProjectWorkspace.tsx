@@ -3,7 +3,7 @@ import { Project } from '../types';
 import { getProjectById, saveProject, getSystemPrompt, uploadImage } from '../services/store';
 import { generateStoryboardContent, generateImageContent } from '../services/geminiService';
 import { GRID_PREFIX_CN, GRID_PREFIX_EN, DEFAULT_NEGATIVE_PROMPT } from '../constants';
-import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, ChevronLeft, Maximize2, Minus, Plus as PlusIcon, RotateCcw, Film, LayoutGrid, Upload, Download, Scissors, Wand2, Cloud, Clipboard, AlertTriangle } from 'lucide-react';
+import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, ChevronLeft, Maximize2, Minus, Plus as PlusIcon, RotateCcw, Film, LayoutGrid, Upload, Download, Scissors, Wand2, Cloud, Clipboard, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 
 interface WorkspaceProps {
@@ -22,6 +22,9 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
   const [saving, setSaving] = useState(false);
   const [uploadingStatus, setUploadingStatus] = useState<string | null>(null);
   
+  // New State for non-blocking background uploads
+  const [isBackgroundUploading, setIsBackgroundUploading] = useState(false);
+
   // Navigation State
   const [activeStep, setActiveStep] = useState<Step>('input');
   const [isPanelOpen, setIsPanelOpen] = useState(true);
@@ -190,48 +193,64 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
         const systemPrompt = await getSystemPrompt('negative_generate');
         const finalSystemPrompt = systemPrompt || DEFAULT_NEGATIVE_PROMPT;
         
-        // 1. Gen Image (Base64)
+        // 1. Gen Image (Base64) - Blocking
         const base64Image = await generateImageContent(promptToUse, finalSystemPrompt);
         
-        // 2. Upload to R2 (Try/Catch Fallback)
-        setUploadingStatus("正在上传到云端存储...");
-        let imageUrl = base64Image;
-        try {
-            imageUrl = await uploadImage(base64Image);
-        } catch (uploadErr: any) {
-            console.warn("Upload failed, using local base64", uploadErr);
-            // Fallback: use Base64
-        }
-        setUploadingStatus(null);
+        // 2. Display Immediately (Step 1 complete)
+        setNegativeImg(base64Image);
         
-        setNegativeImg(imageUrl);
-        
+        // Save locally immediately so we don't lose it if user leaves
         if(project) {
-            const updated = { ...project, negativeImage: imageUrl, updatedAt: Date.now() };
-            await saveProject(updated);
-            setProject(updated);
+            const tempUpdated = { ...project, negativeImage: base64Image, updatedAt: Date.now() };
+            // Don't await save here to keep UI snappy, or maybe lightweight await
+            await saveProject(tempUpdated); 
+            setProject(tempUpdated);
         }
+
+        setLoading(false); // STOP LOADING HERE - UI IS FREE
+        setLoadingStep('');
+
+        // 3. Upload to R2 in Background (Step 2)
+        setIsBackgroundUploading(true);
+        
+        // Use a self-executing async function for background work
+        (async () => {
+            try {
+                const imageUrl = await uploadImage(base64Image);
+                
+                // Update state with URL
+                setNegativeImg(imageUrl);
+                
+                // Save project with new URL
+                if(project) {
+                    // Re-fetch latest project state to be safe or just use current ID
+                    const projectToUpdate = await getProjectById(projectId!) || project;
+                    const finalUpdated = { ...projectToUpdate, negativeImage: imageUrl, updatedAt: Date.now() };
+                    await saveProject(finalUpdated);
+                    setProject(finalUpdated);
+                }
+            } catch (uploadErr: any) {
+                console.warn("Background upload failed, keeping base64", uploadErr);
+                // No alert needed, the UI will show the "not synced" icon
+            } finally {
+                setIsBackgroundUploading(false);
+            }
+        })();
+
     } catch (e: any) {
         alert("图片生成失败：" + e.message);
-        setUploadingStatus(null);
-    } finally {
         setLoading(false);
         setLoadingStep('');
     }
   };
 
   const handleUploadLogic = async (base64: string) => {
-    setLoading(true);
-    setLoadingStep('negative'); 
-    setUploadingStatus("正在上传...");
+    // For manual uploads, we can also use the immediate display logic
+    setNegativeImg(base64);
     
+    setIsBackgroundUploading(true);
     try {
-        let imageUrl = base64;
-        try {
-             imageUrl = await uploadImage(base64);
-        } catch (uploadErr: any) {
-             console.warn("Upload failed, using local base64", uploadErr);
-        }
+        const imageUrl = await uploadImage(base64);
         setNegativeImg(imageUrl);
         
         if(project) {
@@ -240,11 +259,15 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             setProject(updated);
         }
     } catch (err: any) {
-        alert("处理失败：" + err.message);
+        console.warn("Upload failed", err);
+        // Keep base64
+        if(project) {
+            const updated = { ...project, negativeImage: base64, updatedAt: Date.now() };
+            await saveProject(updated);
+            setProject(updated);
+        }
     } finally {
-        setLoading(false);
-        setLoadingStep('');
-        setUploadingStatus(null);
+        setIsBackgroundUploading(false);
     }
   };
 
@@ -763,58 +786,6 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                 </div>
             )}
 
-            {/* GRID EDITOR */}
-            {activeStep === 'grid' && (
-                <div className="h-full flex flex-col animate-fade-in">
-                    <p className="text-sm text-slate-400 mb-4">
-                        已格式化的 3x3 网格生成指令，可直接复制使用。
-                    </p>
-                    
-                    <div className="flex-1 space-y-4 overflow-y-auto pb-4">
-                        {/* CN Block */}
-                        <div className="bg-black/20 rounded-2xl border border-white/10 overflow-hidden">
-                            <div className="px-4 py-2 border-b border-white/5 flex justify-between items-center bg-white/5">
-                                <span className="text-xs font-bold text-slate-500">中文指令 (CN)</span>
-                                <button onClick={() => handleCopy(gridCn, 'grid_cn')} className="text-slate-400 hover:text-white transition-colors">
-                                    {copied === 'grid_cn' ? <Check size={14}/> : <Copy size={14}/>}
-                                </button>
-                            </div>
-                            <textarea 
-                                value={gridCn}
-                                onChange={e => setGridCn(e.target.value)}
-                                className="w-full h-40 bg-transparent p-4 text-xs font-mono text-slate-300 resize-none focus:outline-none leading-relaxed"
-                                placeholder="等待生成..."
-                            />
-                        </div>
-
-                        {/* EN Block */}
-                        <div className="bg-black/20 rounded-2xl border border-white/10 overflow-hidden">
-                            <div className="px-4 py-2 border-b border-white/5 flex justify-between items-center bg-white/5">
-                                <span className="text-xs font-bold text-slate-500">英文指令 (EN)</span>
-                                <button onClick={() => handleCopy(gridEn, 'grid_en')} className="text-slate-400 hover:text-white transition-colors">
-                                    {copied === 'grid_en' ? <Check size={14}/> : <Copy size={14}/>}
-                                </button>
-                            </div>
-                            <textarea 
-                                value={gridEn}
-                                onChange={e => setGridEn(e.target.value)}
-                                className="w-full h-40 bg-transparent p-4 text-xs font-mono text-slate-300 resize-none focus:outline-none leading-relaxed"
-                                placeholder="等待生成..."
-                            />
-                        </div>
-                    </div>
-                    
-                    <button 
-                     onClick={handleGenerateGrid}
-                     disabled={loading || sbCn.length === 0}
-                     className="mt-4 w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl text-sm font-bold transition-all border border-white/10"
-                   >
-                     <RotateCw size={14} />
-                     重新生成网格
-                   </button>
-                </div>
-            )}
-
             {/* NEGATIVE (FILM) EDITOR */}
             {activeStep === 'negative' && (
                 <div className="h-full flex flex-col animate-fade-in">
@@ -862,9 +833,15 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                                         本地上传 (覆盖)
                                     </button>
                                 </div>
-                                <div className={`absolute top-2 right-2 backdrop-blur rounded px-2 py-1 text-[10px] text-white flex items-center gap-1 ${isBase64(negativeImg) ? 'bg-orange-500/80' : 'bg-black/50'}`}>
-                                    {isBase64(negativeImg) ? <AlertTriangle size={10} /> : <Cloud size={10} />}
-                                    {isBase64(negativeImg) ? '未同步云端' : '已存云端'}
+                                <div className={`absolute top-2 right-2 backdrop-blur rounded px-2 py-1 text-[10px] text-white flex items-center gap-1 ${
+                                    isBackgroundUploading ? 'bg-blue-500/80' : 
+                                    isBase64(negativeImg) ? 'bg-orange-500/80' : 'bg-green-500/90'
+                                }`}>
+                                    {isBackgroundUploading ? <Loader2 size={10} className="animate-spin" /> : 
+                                     isBase64(negativeImg) ? <AlertTriangle size={10} /> : <CheckCircle size={10} />}
+                                    
+                                    {isBackgroundUploading ? '同步中' : 
+                                     isBase64(negativeImg) ? '未同步' : '已存云端'}
                                 </div>
                             </div>
                         ) : (
