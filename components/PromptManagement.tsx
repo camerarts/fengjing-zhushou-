@@ -90,7 +90,7 @@ const PromptManagement: React.FC = () => {
         {/* Footer info */}
         <div className="px-6 py-3 bg-black/20 border-t border-white/5 text-xs text-slate-500 flex justify-between">
              <span>模块: storyboard_generate</span>
-             <span>存储: Cloudflare D1</span>
+             <span>存储: Cloudflare Workers KV</span>
         </div>
       </div>
     </div>

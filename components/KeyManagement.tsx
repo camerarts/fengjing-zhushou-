@@ -76,7 +76,7 @@ const KeyManagement: React.FC = () => {
         </div>
         <div className="text-sm text-amber-100/80 leading-relaxed">
           <p className="font-bold text-amber-500 mb-1 text-base">安全提示</p>
-          您的密钥现在存储在 Cloudflare D1 数据库中。
+          您的密钥现在存储在 Cloudflare Workers KV 中。
           应用程序将优先使用您的默认密钥。
         </div>
       </div>
