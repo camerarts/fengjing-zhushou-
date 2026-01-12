@@ -222,12 +222,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
         if (method === 'POST') {
             const body: any = await request.json();
+            const targetType = body.type || 'text'; // Default to text if missing
             
             if (body.isDefault) {
                 const list = await env.KV.list({ prefix: 'model:' });
                 for (const k of list.keys) {
                     const item: any = await env.KV.get(k.name, 'json');
-                    if (item && item.isDefault) {
+                    // Only unset default for same type
+                    if (item && item.isDefault && item.type === targetType) {
                         item.isDefault = false;
                         await env.KV.put(k.name, JSON.stringify(item));
                     }
@@ -242,13 +244,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             const body: any = await request.json();
             const existing: any = await env.KV.get(`model:${id}`, 'json');
             if (!existing) return errorResponse('Model not found', 404);
+            
+            const targetType = body.type || existing.type || 'text';
 
             if (body.isDefault) {
                 const list = await env.KV.list({ prefix: 'model:' });
                 for (const k of list.keys) {
                     if (k.name !== `model:${id}`) {
                         const item: any = await env.KV.get(k.name, 'json');
-                        if (item && item.isDefault) {
+                        // Only unset default for same type
+                        if (item && item.isDefault && item.type === targetType) {
                             item.isDefault = false;
                             await env.KV.put(k.name, JSON.stringify(item));
                         }

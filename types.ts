@@ -22,17 +22,20 @@ export interface Project {
 export interface KeyItem {
   id: string;
   userId: string;
-  label: string;
+  // label removed
   key: string; // Stored locally for this demo app
   isDefault: boolean;
   createdAt: number;
 }
 
+export type ModelType = 'text' | 'image';
+
 export interface ModelItem {
   id: string;
   userId: string;
-  label: string; // Display name e.g. "Gemini 1.5 Pro"
+  // label removed
   modelId: string; // API Model ID e.g. "gemini-1.5-pro"
+  type: ModelType;
   isDefault: boolean;
   createdAt: number;
 }

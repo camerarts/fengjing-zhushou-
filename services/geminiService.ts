@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { getDefaultKey, getDefaultModel } from './store';
+import { ModelType } from '../types';
 
 // Helper to get client
 const getClient = async (apiKey?: string) => {
@@ -13,10 +14,15 @@ const getClient = async (apiKey?: string) => {
   return new GoogleGenAI({ apiKey: key });
 };
 
-// Helper to get model ID
-const getModelId = async () => {
-    const storedModel = await getDefaultModel();
-    return storedModel || 'gemini-3-flash-preview';
+// Helper to get model ID by type
+const getModelId = async (type: ModelType) => {
+    const storedModel = await getDefaultModel(type);
+    if (storedModel) return storedModel;
+    
+    // Fallbacks if no model configured
+    return type === 'image' 
+        ? 'gemini-2.5-flash-image'
+        : 'gemini-3-flash-preview';
 };
 
 export const generateStoryboardContent = async (
@@ -25,7 +31,7 @@ export const generateStoryboardContent = async (
   userApiKey?: string
 ): Promise<{ cn: string[]; en: string[] }> => {
   const client = await getClient(userApiKey);
-  const modelId = await getModelId();
+  const modelId = await getModelId('text'); // Use text model
 
   const prompt = `
     基于以下创意方案，生成 9 个独特的分镜画面描述。
@@ -106,13 +112,11 @@ export const generateImageContent = async (
     userApiKey?: string
 ): Promise<string> => {
     const client = await getClient(userApiKey);
-    
-    // Use the specific image generation model as per instructions
-    const model = 'gemini-2.5-flash-image';
+    const modelId = await getModelId('image'); // Use image model
 
     try {
         const response = await client.models.generateContent({
-            model: model,
+            model: modelId,
             contents: prompt,
             config: {
                 systemInstruction: systemPrompt,

@@ -1,4 +1,4 @@
-import { Project, KeyItem, ModelItem, PromptConfig, User } from '../types';
+import { Project, KeyItem, ModelItem, PromptConfig, User, ModelType } from '../types';
 import { DEFAULT_SYSTEM_PROMPT, MOCK_USER } from '../constants';
 
 const STORAGE_KEYS = {
@@ -249,11 +249,15 @@ export const deleteModel = async (id: string) => {
   await fetchAPI(`/models/${id}`, { method: 'DELETE' });
 };
 
-export const getDefaultModel = async (): Promise<string | null> => {
+// Updated to accept type filter
+export const getDefaultModel = async (type: ModelType = 'text'): Promise<string | null> => {
     try {
         const models = await getModels();
-        const def = models.find(m => m.isDefault);
-        return def ? def.modelId : (models.length > 0 ? models[0].modelId : null);
+        // Filter by type
+        const typeModels = models.filter(m => (m.type || 'text') === type);
+        
+        const def = typeModels.find(m => m.isDefault);
+        return def ? def.modelId : (typeModels.length > 0 ? typeModels[0].modelId : null);
     } catch (e) {
         return null;
     }
