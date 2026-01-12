@@ -52,6 +52,36 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
+// Auto-initialization Schema
+const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  creative_plan TEXT,
+  storyboard_zh TEXT,
+  storyboard_en TEXT,
+  grid_3x3_zh TEXT,
+  grid_3x3_en TEXT,
+  created_at INTEGER,
+  updated_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS api_keys (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  label TEXT NOT NULL,
+  key_value TEXT NOT NULL,
+  is_default INTEGER DEFAULT 0,
+  created_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS prompts (
+  id TEXT PRIMARY KEY,
+  module_key TEXT UNIQUE NOT NULL,
+  content TEXT,
+  updated_at INTEGER
+);
+`;
+
 // Helper for JSON responses
 const jsonResponse = (data: any, status = 200) => {
   return new Response(JSON.stringify(data), {
@@ -71,6 +101,27 @@ const errorResponse = (message: string, status = 500, traceId?: string) => {
     traceId 
   }, status);
 };
+
+// DB Retry Wrapper
+async function dbQuery<T>(env: Env, operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (err: any) {
+    // If table doesn't exist, try to init DB and retry once
+    if (err.message && (err.message.includes('no such table') || err.message.includes('SQLITE_ERROR'))) {
+      console.warn("Database tables missing. Attempting auto-initialization...");
+      try {
+        await env.DB.exec(SCHEMA_SQL);
+        console.log("Database initialized successfully. Retrying operation...");
+        return await operation();
+      } catch (initErr: any) {
+        console.error("Auto-initialization failed:", initErr);
+        throw err; // Throw original error if init fails
+      }
+    }
+    throw err;
+  }
+}
 
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env, params } = context;
@@ -99,12 +150,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (resource === 'projects') {
       if (method === 'GET') {
         if (id) {
-          const stmt = env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(id);
-          const result = await stmt.first();
+          const result = await dbQuery(env, () => 
+            env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(id).first()
+          );
           if (!result) return errorResponse('Project not found', 404);
           return jsonResponse(mapProjectFromDb(result));
         } else {
-          const { results } = await env.DB.prepare('SELECT * FROM projects ORDER BY updated_at DESC').all();
+          const { results } = await dbQuery(env, () => 
+            env.DB.prepare('SELECT * FROM projects ORDER BY updated_at DESC').all()
+          );
           return jsonResponse(results.map(mapProjectFromDb));
         }
       } 
@@ -118,14 +172,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         }
 
         try {
-            await env.DB.prepare(`
-            INSERT INTO projects (id, user_id, name, creative_plan, storyboard_zh, storyboard_en, grid_3x3_zh, grid_3x3_en, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).bind(
-            body.id, body.userId, body.name, body.creativePlan || '', 
-            JSON.stringify(body.storyboardZh || []), JSON.stringify(body.storyboardEn || []), 
-            body.grid3x3Zh || '', body.grid3x3En || '', body.createdAt || Date.now(), body.updatedAt || Date.now()
-            ).run();
+            await dbQuery(env, () => 
+              env.DB.prepare(`
+              INSERT INTO projects (id, user_id, name, creative_plan, storyboard_zh, storyboard_en, grid_3x3_zh, grid_3x3_en, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `).bind(
+              body.id, body.userId, body.name, body.creativePlan || '', 
+              JSON.stringify(body.storyboardZh || []), JSON.stringify(body.storyboardEn || []), 
+              body.grid3x3Zh || '', body.grid3x3En || '', body.createdAt || Date.now(), body.updatedAt || Date.now()
+              ).run()
+            );
         } catch (dbErr: any) {
             console.error("DB Insert Error", dbErr);
             return errorResponse("Database insert failed: " + dbErr.message, 500);
@@ -136,20 +192,24 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       if (method === 'PUT' && id) {
         const body: any = await request.json();
-        await env.DB.prepare(`
-          UPDATE projects SET 
-            name=?, creative_plan=?, storyboard_zh=?, storyboard_en=?, grid_3x3_zh=?, grid_3x3_en=?, updated_at=?
-          WHERE id=?
-        `).bind(
-          body.name, body.creativePlan, 
-          JSON.stringify(body.storyboardZh), JSON.stringify(body.storyboardEn), 
-          body.grid3x3Zh, body.grid3x3En, body.updatedAt, id
-        ).run();
+        await dbQuery(env, () => 
+          env.DB.prepare(`
+            UPDATE projects SET 
+              name=?, creative_plan=?, storyboard_zh=?, storyboard_en=?, grid_3x3_zh=?, grid_3x3_en=?, updated_at=?
+            WHERE id=?
+          `).bind(
+            body.name, body.creativePlan, 
+            JSON.stringify(body.storyboardZh), JSON.stringify(body.storyboardEn), 
+            body.grid3x3Zh, body.grid3x3En, body.updatedAt, id
+          ).run()
+        );
         return jsonResponse({ success: true });
       }
 
       if (method === 'DELETE' && id) {
-        await env.DB.prepare('DELETE FROM projects WHERE id = ?').bind(id).run();
+        await dbQuery(env, () => 
+          env.DB.prepare('DELETE FROM projects WHERE id = ?').bind(id).run()
+        );
         return jsonResponse({ success: true });
       }
     }
@@ -157,7 +217,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     // --- API KEYS ---
     if (resource === 'keys') {
       if (method === 'GET') {
-        const { results } = await env.DB.prepare('SELECT * FROM api_keys ORDER BY created_at DESC').all();
+        const { results } = await dbQuery(env, () => 
+          env.DB.prepare('SELECT * FROM api_keys ORDER BY created_at DESC').all()
+        );
         return jsonResponse(results.map(mapKeyFromDb));
       }
 
@@ -165,27 +227,31 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const body: any = await request.json();
         // If setting default, unset others first
         if (body.isDefault) {
-          await env.DB.prepare('UPDATE api_keys SET is_default = 0').run();
+          await dbQuery(env, () => env.DB.prepare('UPDATE api_keys SET is_default = 0').run());
         }
-        await env.DB.prepare(`
-          INSERT INTO api_keys (id, user_id, label, key_value, is_default, created_at)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `).bind(body.id, body.userId, body.label, body.key, body.isDefault ? 1 : 0, body.createdAt).run();
+        await dbQuery(env, () => 
+          env.DB.prepare(`
+            INSERT INTO api_keys (id, user_id, label, key_value, is_default, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).bind(body.id, body.userId, body.label, body.key, body.isDefault ? 1 : 0, body.createdAt).run()
+        );
         return jsonResponse({ success: true }, 201);
       }
 
       if (method === 'PUT' && id) {
          const body: any = await request.json();
          if (body.isDefault) {
-           await env.DB.prepare('UPDATE api_keys SET is_default = 0').run();
+           await dbQuery(env, () => env.DB.prepare('UPDATE api_keys SET is_default = 0').run());
          }
-         await env.DB.prepare('UPDATE api_keys SET is_default = ? WHERE id = ?')
-            .bind(body.isDefault ? 1 : 0, id).run();
+         await dbQuery(env, () => 
+           env.DB.prepare('UPDATE api_keys SET is_default = ? WHERE id = ?')
+            .bind(body.isDefault ? 1 : 0, id).run()
+         );
          return jsonResponse({ success: true });
       }
 
       if (method === 'DELETE' && id) {
-        await env.DB.prepare('DELETE FROM api_keys WHERE id = ?').bind(id).run();
+        await dbQuery(env, () => env.DB.prepare('DELETE FROM api_keys WHERE id = ?').bind(id).run());
         return jsonResponse({ success: true });
       }
     }
@@ -195,22 +261,30 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       if (method === 'GET') {
         const moduleKey = url.searchParams.get('moduleKey');
         if (moduleKey) {
-           const result = await env.DB.prepare('SELECT * FROM prompts WHERE module_key = ?').bind(moduleKey).first();
+           const result = await dbQuery(env, () => 
+             env.DB.prepare('SELECT * FROM prompts WHERE module_key = ?').bind(moduleKey).first()
+           );
            return jsonResponse(result || null);
         }
-        const { results } = await env.DB.prepare('SELECT * FROM prompts').all();
+        const { results } = await dbQuery(env, () => env.DB.prepare('SELECT * FROM prompts').all());
         return jsonResponse(results);
       }
 
       if (method === 'POST') {
         const body: any = await request.json();
-        const existing = await env.DB.prepare('SELECT id FROM prompts WHERE module_key = ?').bind(body.moduleKey).first();
+        const existing = await dbQuery(env, () => 
+          env.DB.prepare('SELECT id FROM prompts WHERE module_key = ?').bind(body.moduleKey).first()
+        );
         if (existing) {
-           await env.DB.prepare('UPDATE prompts SET content = ?, updated_at = ? WHERE module_key = ?')
-             .bind(body.content, body.updatedAt, body.moduleKey).run();
+           await dbQuery(env, () => 
+             env.DB.prepare('UPDATE prompts SET content = ?, updated_at = ? WHERE module_key = ?')
+             .bind(body.content, body.updatedAt, body.moduleKey).run()
+           );
         } else {
-           await env.DB.prepare('INSERT INTO prompts (id, module_key, content, updated_at) VALUES (?, ?, ?, ?)')
-             .bind(Date.now().toString(), body.moduleKey, body.content, body.updatedAt).run();
+           await dbQuery(env, () => 
+             env.DB.prepare('INSERT INTO prompts (id, module_key, content, updated_at) VALUES (?, ?, ?, ?)')
+             .bind(Date.now().toString(), body.moduleKey, body.content, body.updatedAt).run()
+           );
         }
         return jsonResponse({ success: true });
       }
@@ -230,6 +304,7 @@ function mapProjectFromDb(row: any) {
     id: row.id,
     userId: row.user_id,
     name: row.name,
+    creative_plan: row.creative_plan, // Keep internal DB mapping correct if needed, but output object should use camelCase
     creativePlan: row.creative_plan,
     storyboardZh: JSON.parse(row.storyboard_zh || '[]'),
     storyboardEn: JSON.parse(row.storyboard_en || '[]'),
