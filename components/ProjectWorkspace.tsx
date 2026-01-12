@@ -13,6 +13,7 @@ import InputEditor from './workspace/InputEditor';
 import StoryboardEditor from './workspace/StoryboardEditor';
 import GridEditor from './workspace/GridEditor';
 import NegativeEditor from './workspace/NegativeEditor';
+import GridImageEditor from './workspace/GridImageEditor';
 import SplitEditor from './workspace/SplitEditor';
 
 interface WorkspaceProps {
@@ -42,6 +43,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
   const [gridCn, setGridCn] = useState('');
   const [gridEn, setGridEn] = useState('');
   const [negativeImg, setNegativeImg] = useState('');
+  const [gridCompositeImg, setGridCompositeImg] = useState('');
   const [splitImgs, setSplitImgs] = useState<string[]>([]);
 
   useEffect(() => {
@@ -57,6 +59,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             setGridCn(p.grid3x3Zh || '');
             setGridEn(p.grid3x3En || '');
             setNegativeImg(p.negativeImage || '');
+            setGridCompositeImg(p.gridCompositeImage || '');
             setSplitImgs(p.splitImages || []);
             
             // Auto navigate
@@ -64,6 +67,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             else if (p.storyboardZh.length === 0) setActiveStep('storyboard');
             else if (!p.negativeImage) setActiveStep('negative');
             else if (!p.grid3x3Zh) setActiveStep('grid');
+            else if (!p.gridCompositeImage) setActiveStep('grid_image');
             else setActiveStep('split');
             
             if (!p.creativePlan || p.storyboardZh.length === 0) {
@@ -84,6 +88,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
       grid3x3Zh: gridCn,
       grid3x3En: gridEn,
       negativeImage: negativeImg,
+      gridCompositeImage: gridCompositeImg,
       splitImages: splitImgs,
       updatedAt: Date.now()
     };
@@ -230,69 +235,16 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
     }
   };
 
-  const processSplitLogic = async (sourceImage: string) => {
-    const img = new Image();
-    img.crossOrigin = "Anonymous";
-    
-    // Add timestamp to force fresh request if it's a URL
-    if (sourceImage.startsWith('data:')) {
-        img.src = sourceImage;
-    } else {
-        img.src = `${sourceImage}${sourceImage.includes('?') ? '&' : '?'}t=${Date.now()}`;
-    }
+  // Step 5: Generate Grid Image (Composite 3x3)
+  const handleGenerateGridImage = async () => {
+      if (!negativeImg) return alert("缺少底片(参考图)");
+      if (!gridEn) return alert("缺少网格指令");
 
-    await img.decode();
-    const pieceWidth = img.width / 3;
-    const pieceHeight = img.height / 3;
-    
-    const splitBase64s: string[] = [];
-    const canvas = document.createElement('canvas');
-    canvas.width = pieceWidth;
-    canvas.height = pieceHeight;
-    const ctx = canvas.getContext('2d');
+      setLoading(true);
+      setLoadingStep('grid_image');
+      setUploadingStatus("正在生成 3x3 大图...");
 
-    if (ctx) {
-        for (let row = 0; row < 3; row++) {
-            for (let col = 0; col < 3; col++) {
-                ctx.clearRect(0, 0, pieceWidth, pieceHeight);
-                ctx.drawImage(img, col * pieceWidth, row * pieceHeight, pieceWidth, pieceHeight, 0, 0, pieceWidth, pieceHeight);
-                splitBase64s.push(canvas.toDataURL('image/jpeg', 0.95));
-            }
-        }
-    }
-    
-    setUploadingStatus(`正在上传 9 张切片...`);
-    const newSplitUrls: string[] = [];
-    
-    for(let i=0; i<splitBase64s.length; i++) {
-        try {
-            const url = await uploadImage(splitBase64s[i]);
-            newSplitUrls.push(url);
-        } catch(e) {
-            newSplitUrls.push(splitBase64s[i]);
-        }
-    }
-
-    setUploadingStatus(null);
-    setSplitImgs(newSplitUrls);
-    
-    if(project) {
-        const updated = { ...project, splitImages: newSplitUrls, updatedAt: Date.now() };
-        await saveProject(updated);
-        setProject(updated);
-    }
-  };
-
-  // Main Action: Generate new grid via AI, then split
-  const handleGenerateAndSplit = async () => {
-    if (!negativeImg) return;
-    if (!gridEn) return alert("缺少网格指令（Grid Instructions）。请先在步骤4生成网格指令。");
-
-    setLoading(true);
-    setLoadingStep('split');
-    setUploadingStatus("正在分析底片并生成九宫格...");
-
-    try {
+      try {
         // 1. Get Base64 of the reference image
         let refBase64 = negativeImg;
         if (!negativeImg.startsWith('data:')) {
@@ -310,37 +262,114 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             }
         }
 
-        // 2. Call Gemini to generate the 3x3 grid
+        // 2. Call Gemini
         const newGridBase64 = await generateImageFromReference(gridEn, refBase64);
+        setGridCompositeImg(newGridBase64);
+        setLoading(false); // Stop block
+        setLoadingStep('');
+        setUploadingStatus(null);
+
+        // 3. Background Upload
+        setIsBackgroundUploading(true);
+        try {
+            const imageUrl = await uploadImage(newGridBase64);
+            setGridCompositeImg(imageUrl);
+            if(project) {
+                const updated = { ...project, gridCompositeImage: imageUrl, updatedAt: Date.now() };
+                await saveProject(updated);
+                setProject(updated);
+            }
+        } catch(e) {
+            console.warn("Grid image upload failed", e);
+             if(project) {
+                const updated = { ...project, gridCompositeImage: newGridBase64, updatedAt: Date.now() };
+                await saveProject(updated);
+                setProject(updated);
+            }
+        } finally {
+            setIsBackgroundUploading(false);
+        }
+
+      } catch (e: any) {
+        alert("生成失败：" + e.message);
+        setLoading(false);
+        setLoadingStep('');
+        setUploadingStatus(null);
+      }
+  };
+
+  // Step 6: Slice the Grid Image
+  const handleSliceGridImage = async () => {
+    if (!gridCompositeImg) return;
+    setLoading(true);
+    setLoadingStep('split'); // Actually loading for the next step, but triggered from prev or this
+    setUploadingStatus("正在切割图片...");
+
+    try {
+        const sourceImage = gridCompositeImg;
+        const img = new Image();
+        img.crossOrigin = "Anonymous";
         
-        // 3. Split this NEW image
-        setUploadingStatus("正在切分新生成的九宫格...");
-        await processSplitLogic(newGridBase64);
+        // Add timestamp to force fresh request if it's a URL
+        if (sourceImage.startsWith('data:')) {
+            img.src = sourceImage;
+        } else {
+            img.src = `${sourceImage}${sourceImage.includes('?') ? '&' : '?'}t=${Date.now()}`;
+        }
+
+        await img.decode();
+        const pieceWidth = img.width / 3;
+        const pieceHeight = img.height / 3;
+        
+        const splitBase64s: string[] = [];
+        const canvas = document.createElement('canvas');
+        canvas.width = pieceWidth;
+        canvas.height = pieceHeight;
+        const ctx = canvas.getContext('2d');
+
+        if (ctx) {
+            for (let row = 0; row < 3; row++) {
+                for (let col = 0; col < 3; col++) {
+                    ctx.clearRect(0, 0, pieceWidth, pieceHeight);
+                    ctx.drawImage(img, col * pieceWidth, row * pieceHeight, pieceWidth, pieceHeight, 0, 0, pieceWidth, pieceHeight);
+                    splitBase64s.push(canvas.toDataURL('image/jpeg', 0.95));
+                }
+            }
+        }
+        
+        setUploadingStatus(`正在上传 9 张切片...`);
+        const newSplitUrls: string[] = [];
+        
+        for(let i=0; i<splitBase64s.length; i++) {
+            try {
+                const url = await uploadImage(splitBase64s[i]);
+                newSplitUrls.push(url);
+            } catch(e) {
+                newSplitUrls.push(splitBase64s[i]);
+            }
+        }
+
+        setUploadingStatus(null);
+        setSplitImgs(newSplitUrls);
+        
+        if(project) {
+            const updated = { ...project, splitImages: newSplitUrls, updatedAt: Date.now() };
+            await saveProject(updated);
+            setProject(updated);
+        }
+
+        // Navigate to Split view
+        setActiveStep('split');
 
     } catch (e: any) {
         console.error(e);
-        alert("生成或切分失败：" + e.message);
+        alert("切割失败：" + e.message);
     } finally {
         setLoading(false);
         setLoadingStep('');
         setUploadingStatus(null);
     }
   };
-
-  // Secondary Action: Just split the reference image (no AI gen)
-  const handleDirectSplit = async () => {
-    if (!negativeImg) return;
-    setLoading(true);
-    setLoadingStep('split');
-    try {
-        await processSplitLogic(negativeImg);
-    } catch(e: any) {
-        alert("切分失败：" + e.message);
-    } finally {
-        setLoading(false);
-        setLoadingStep('');
-    }
-  }
 
   const handleStepClick = (step: Step) => {
     setActiveStep(step);
@@ -351,6 +380,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
       if (step === 'storyboard') handleGenerateStoryboard();
       else if (step === 'grid') handleGenerateGrid();
       else if (step === 'negative') handleGenerateNegativeImage();
+      else if (step === 'grid_image') handleGenerateGridImage();
   };
 
   if (!projectId) return <div className="p-8 text-center text-slate-400">错误：未找到项目ID</div>;
@@ -368,6 +398,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
              hasStoryboard: sbCn.length > 0,
              hasGrid: !!gridCn,
              hasNegative: !!negativeImg,
+             hasGridImage: !!gridCompositeImg,
              hasSplit: splitImgs.length > 0,
              name: project.name
          }}
@@ -417,7 +448,8 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                     {activeStep === 'storyboard' && '分镜脚本 (9帧)'}
                     {activeStep === 'grid' && '视觉网格 (3x3)'}
                     {activeStep === 'negative' && '底片管理'}
-                    {activeStep === 'split' && '分镜切片 (9张)'}
+                    {activeStep === 'grid_image' && '九宫格合成图'}
+                    {activeStep === 'split' && '切割后图片'}
                  </span>
              </div>
              <button onClick={() => setIsPanelOpen(false)} className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors shrink-0">
@@ -467,7 +499,20 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                     isBackgroundUploading={isBackgroundUploading}
                     onGenerate={handleGenerateNegativeImage}
                     onImageSelected={handleImageSelected}
-                    onSplit={() => { setActiveStep('split'); handleGenerateAndSplit(); }}
+                    onSplit={() => setActiveStep('grid_image')} 
+                />
+            )}
+
+            {activeStep === 'grid_image' && (
+                <GridImageEditor
+                    gridCompositeImg={gridCompositeImg}
+                    loading={loading}
+                    loadingStep={loadingStep}
+                    hasNegative={!!negativeImg}
+                    hasGridInstructions={!!gridEn}
+                    isBackgroundUploading={isBackgroundUploading}
+                    onGenerate={handleGenerateGridImage}
+                    onSlice={handleSliceGridImage}
                 />
             )}
 
@@ -475,11 +520,9 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                 <SplitEditor 
                     splitImgs={splitImgs}
                     loading={loading}
-                    onResplit={handleGenerateAndSplit}
-                    onDirectSplit={handleDirectSplit}
-                    onGoBack={() => setActiveStep('negative')}
-                    hasNegative={!!negativeImg}
-                    hasGrid={!!gridEn}
+                    onResplit={handleSliceGridImage}
+                    onGoBack={() => setActiveStep('grid_image')}
+                    hasGridComposite={!!gridCompositeImg}
                 />
             )}
          </div>

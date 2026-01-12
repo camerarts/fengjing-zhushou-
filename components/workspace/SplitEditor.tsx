@@ -1,25 +1,23 @@
 import React from 'react';
-import { Loader2, LayoutGrid, Download, AlertTriangle, Wand2, Scissors } from 'lucide-react';
+import { Loader2, LayoutGrid, Download, AlertTriangle, Scissors } from 'lucide-react';
 
 interface SplitEditorProps {
   splitImgs: string[];
   loading: boolean;
   onResplit: () => void;
-  onDirectSplit: () => void;
   onGoBack: () => void;
-  hasNegative: boolean;
-  hasGrid: boolean;
+  hasGridComposite: boolean;
 }
 
 const SplitEditor: React.FC<SplitEditorProps> = ({ 
-    splitImgs, loading, onResplit, onDirectSplit, onGoBack, hasNegative, hasGrid 
+    splitImgs, loading, onResplit, onGoBack, hasGridComposite 
 }) => {
   const isBase64 = (str: string) => str.startsWith('data:');
 
   return (
     <div className="h-full flex flex-col animate-fade-in">
         <p className="text-sm text-slate-400 mb-4 flex justify-between">
-            <span>已自动切分为 9 张独立图片。</span>
+            <span>已切割的 9 张独立分镜图。</span>
             <span className="text-xs bg-brand-500/20 text-brand-300 px-2 py-0.5 rounded-full border border-brand-500/20">9:16</span>
         </p>
 
@@ -27,7 +25,7 @@ const SplitEditor: React.FC<SplitEditorProps> = ({
             <div className="flex-1 flex flex-col items-center justify-center text-slate-500 bg-white/5 rounded-2xl border border-dashed border-white/10">
                 <LayoutGrid size={32} className="mb-2 opacity-50" />
                 <span className="text-sm">暂无切片数据</span>
-                <button onClick={onGoBack} className="mt-2 text-brand-400 text-xs hover:underline">返回底片上传</button>
+                <button onClick={onGoBack} className="mt-2 text-brand-400 text-xs hover:underline">返回上一部切割</button>
             </div>
         ) : (
             <div className="flex-1 overflow-y-auto">
@@ -62,22 +60,11 @@ const SplitEditor: React.FC<SplitEditorProps> = ({
         <div className="mt-4 space-y-2">
             <button 
                 onClick={onResplit}
-                disabled={loading || !hasNegative || !hasGrid}
-                className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-500 text-white py-3 rounded-xl text-sm font-bold shadow-lg shadow-brand-900/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.01]"
-                title={!hasGrid ? "需要先生成网格指令" : ""}
+                disabled={loading || !hasGridComposite}
+                className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl text-sm font-bold transition-all border border-white/10 hover:border-white/20"
             >
-                {loading ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
-                AI 生成九宫格并切分
-            </button>
-            {!hasGrid && <p className="text-[10px] text-red-400 text-center">无法生成：缺少 Module 4 网格指令</p>}
-
-            <button 
-                onClick={onDirectSplit}
-                disabled={loading || !hasNegative}
-                className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 rounded-xl text-xs font-medium transition-all border border-white/10 hover:border-white/20"
-            >
-                <Scissors size={12} />
-                仅切分底片 (不重新生成)
+                {loading ? <Loader2 size={16} className="animate-spin" /> : <Scissors size={16} />}
+                重新切割 (基于上一步大图)
             </button>
         </div>
     </div>

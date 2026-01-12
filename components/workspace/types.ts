@@ -1,1 +1,1 @@
-export type Step = 'input' | 'storyboard' | 'grid' | 'negative' | 'split';
+export type Step = 'input' | 'storyboard' | 'grid' | 'negative' | 'grid_image' | 'split';

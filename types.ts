@@ -13,7 +13,8 @@ export interface Project {
   storyboardEn: string[];
   grid3x3Zh: string;
   grid3x3En: string;
-  negativeImage?: string; // Base64 or URL of the 3x3 source image
+  negativeImage?: string; // Anchor/Reference Image (Single 9:16)
+  gridCompositeImage?: string; // The generated 3x3 Grid Image (Single Image)
   splitImages?: string[]; // Array of 9 split images
   createdAt: number;
   updatedAt: number;

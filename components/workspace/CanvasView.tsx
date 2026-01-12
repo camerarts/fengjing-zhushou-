@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Step } from './types';
-import { LayoutTemplate, FileText, Grid, Film, LayoutGrid, Check, Zap, Loader2, Plus as PlusIcon, Minus, RotateCcw, Maximize2, Save } from 'lucide-react';
+import { LayoutTemplate, FileText, Grid, Film, LayoutGrid, Check, Zap, Loader2, Plus as PlusIcon, Minus, RotateCcw, Maximize2, Save, Image as ImageIcon } from 'lucide-react';
 
 interface CanvasViewProps {
   activeStep: Step;
@@ -10,6 +10,7 @@ interface CanvasViewProps {
     hasStoryboard: boolean;
     hasGrid: boolean;
     hasNegative: boolean;
+    hasGridImage: boolean;
     hasSplit: boolean;
     name: string;
   };
@@ -69,7 +70,6 @@ const CanvasView: React.FC<CanvasViewProps> = ({
     setIsDragging(false);
     const moveDist = Math.hypot(e.clientX - dragStartPosRef.current.x, e.clientY - dragStartPosRef.current.y);
     if (moveDist < 5) {
-        // Only close panel if clicked on empty space (not handled by children propagation stop)
         onPanelToggle(false);
     }
   };
@@ -300,12 +300,25 @@ const CanvasView: React.FC<CanvasViewProps> = ({
             
             <JoinConnector />
 
-            {/* 5. Split */}
+            {/* 5. Grid Image (Composite) */}
             <CanvasNode 
                 id={5} 
-                stepId="split" 
+                stepId="grid_image" 
                 label="九宫格图片" 
-                desc="自动切分 9 张图" 
+                desc="生成的 3x3 大图" 
+                icon={ImageIcon} 
+                isDone={projectData.hasGridImage}
+                hasAction={true} 
+            />
+
+            <Connector />
+
+            {/* 6. Split (Result) */}
+            <CanvasNode 
+                id={6} 
+                stepId="split" 
+                label="切割后图片" 
+                desc="9 张独立图片" 
                 icon={LayoutGrid} 
                 isDone={projectData.hasSplit} 
             />
