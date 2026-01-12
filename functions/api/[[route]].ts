@@ -105,28 +105,47 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const body: any = await request.json();
       const imageDataUrl = body.image; // Expecting "data:image/png;base64,..."
 
-      if (!imageDataUrl || !imageDataUrl.startsWith('data:image')) {
+      if (!imageDataUrl || typeof imageDataUrl !== 'string' || !imageDataUrl.startsWith('data:image')) {
         return errorResponse("Invalid image data. Must be a Base64 Data URL.", 400);
       }
 
-      // Parse Data URL
-      const matches = imageDataUrl.match(/^data:(image\/([a-zA-Z]+));base64,(.+)$/);
-      if (!matches || matches.length !== 4) {
-        return errorResponse("Invalid Data URL format.", 400);
+      // Robust Parsing without Regex on full string to avoid stack overflow/DoS on large strings
+      const commaIndex = imageDataUrl.indexOf(',');
+      if (commaIndex === -1) {
+        return errorResponse("Invalid Data URL format: missing comma.", 400);
       }
 
-      const mimeType = matches[1]; // e.g., image/png
-      const extension = matches[2] === 'jpeg' ? 'jpg' : matches[2]; // e.g., png
-      const base64Data = matches[3];
+      const header = imageDataUrl.substring(0, commaIndex);
+      // Clean base64 string: remove any newlines or spaces that might creep in
+      const base64Data = imageDataUrl.substring(commaIndex + 1).replace(/[\s\r\n]+/g, '');
+
+      // Parse Header for MimeType
+      const mimeMatch = header.match(/^data:(image\/[a-zA-Z0-9.-]+);base64$/);
+      if (!mimeMatch) {
+        return errorResponse("Invalid Data URL header format.", 400);
+      }
+
+      const mimeType = mimeMatch[1]; // e.g., image/png
+      let extension = mimeType.split('/')[1] || 'png';
       
+      // Normalize extension
+      if (extension === 'jpeg') extension = 'jpg';
+      extension = extension.replace(/[^a-z0-9]/gi, ''); // Sanitize
+
       // Generate unique filename
       const filename = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${extension}`;
-      const buffer = base64ToUint8Array(base64Data);
-
-      // Upload to R2
-      await env.BUCKET.put(filename, buffer.buffer, {
-        httpMetadata: { contentType: mimeType }
-      });
+      
+      try {
+        const buffer = base64ToUint8Array(base64Data);
+        
+        // Upload to R2
+        await env.BUCKET.put(filename, buffer.buffer, {
+          httpMetadata: { contentType: mimeType }
+        });
+      } catch (err: any) {
+        console.error("Buffer/R2 Error:", err);
+        return errorResponse(`Failed to process or upload image: ${err.message}`, 500);
+      }
 
       // Return Public URL
       // Ensure R2_PUBLIC_URL doesn't have a trailing slash

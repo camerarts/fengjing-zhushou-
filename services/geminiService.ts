@@ -145,7 +145,8 @@ export const generateImageContent = async (
             for (const part of response.candidates[0].content.parts) {
                 if (part.inlineData && part.inlineData.data) {
                     const base64EncodeString = part.inlineData.data;
-                    return `data:image/png;base64,${base64EncodeString}`;
+                    const mimeType = part.inlineData.mimeType || 'image/png';
+                    return `data:${mimeType};base64,${base64EncodeString}`;
                 }
             }
         }
