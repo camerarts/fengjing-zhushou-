@@ -167,6 +167,9 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
   // --- Canvas Interaction Handlers ---
 
   const handleWheel = (e: React.WheelEvent) => {
+    // Zoom only when Shift is pressed
+    if (!e.shiftKey) return;
+
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     setViewState(prev => {
         const newScale = Math.min(Math.max(prev.scale * delta, 0.2), 3.0);
@@ -402,11 +405,11 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
       </div>
 
       {/* Right Drawer Panel (Overlay) */}
-      {/* Width reduced from md:w-[500px] to md:w-[350px] */}
+      {/* Width increased from 350px to 420px */}
       <div 
         onMouseDown={e => e.stopPropagation()} // Prevent events from bubbling to canvas
         onClick={(e) => e.stopPropagation()} 
-        className={`absolute top-0 right-0 h-full w-full md:w-[350px] bg-slate-900/95 backdrop-blur-2xl border-l border-white/10 shadow-2xl transition-transform duration-500 ease-out z-40 flex flex-col
+        className={`absolute top-0 right-0 h-full w-full md:w-[420px] bg-slate-900/95 backdrop-blur-2xl border-l border-white/10 shadow-2xl transition-transform duration-500 ease-out z-40 flex flex-col
           ${isPanelOpen ? 'translate-x-0' : 'translate-x-full'}`}
       >
          {/* Panel Header */}
@@ -458,17 +461,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             {/* STORYBOARD EDITOR */}
             {activeStep === 'storyboard' && (
                 <div className="flex flex-col gap-6 animate-fade-in pb-10">
-                     <div className="flex items-center justify-between">
-                         <p className="text-sm text-slate-400">检查并编辑生成的分镜。</p>
-                         <div className="flex gap-2">
-                             <button onClick={() => handleCopy(sbCn.join('\n'), 'sb_cn')} title="复制中文" className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors">
-                                 {copied === 'sb_cn' ? <Check size={14}/> : <span className="text-xs font-bold">CN</span>}
-                             </button>
-                             <button onClick={() => handleCopy(sbEn.join('\n'), 'sb_en')} title="复制英文" className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors">
-                                 {copied === 'sb_en' ? <Check size={14}/> : <span className="text-xs font-bold">EN</span>}
-                             </button>
-                         </div>
-                     </div>
+                     <p className="text-sm text-slate-400">检查并编辑生成的分镜。</p>
                      
                      {sbCn.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-20 text-slate-500 border-2 border-dashed border-white/5 rounded-2xl bg-white/[0.02]">
@@ -477,42 +470,71 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                             <button onClick={() => setActiveStep('input')} className="mt-2 text-brand-400 text-xs hover:underline">去生成</button>
                         </div>
                      ) : (
-                         <div className="space-y-4">
-                             {sbCn.map((frame, i) => (
-                                 <div key={i} className="group bg-slate-800/50 hover:bg-slate-800 border border-white/5 hover:border-brand-500/30 rounded-xl p-4 transition-all">
-                                     <div className="flex justify-between items-start mb-2">
-                                         <span className="text-xs font-bold text-slate-500 bg-black/20 px-2 py-0.5 rounded">FRAME {i+1}</span>
-                                     </div>
-                                     <div className="space-y-3">
-                                        <div>
-                                            <p className="text-xs text-slate-500 mb-1">中文描述</p>
-                                            <div 
-                                                className="text-sm text-slate-200 outline-none focus:text-white border-b border-transparent focus:border-brand-500/50 pb-1 transition-colors"
-                                                contentEditable 
-                                                suppressContentEditableWarning
-                                                onBlur={(e) => {
-                                                    const newArr = [...sbCn];
-                                                    newArr[i] = e.currentTarget.textContent || '';
-                                                    setSbCn(newArr);
-                                                }}
-                                            >{frame}</div>
-                                        </div>
-                                        <div className="pt-2 border-t border-white/5">
-                                            <p className="text-xs text-slate-500 mb-1">英文提示词</p>
-                                            <div 
-                                                className="text-sm text-slate-400 font-mono outline-none focus:text-white border-b border-transparent focus:border-brand-500/50 pb-1 transition-colors"
-                                                contentEditable 
-                                                suppressContentEditableWarning
-                                                onBlur={(e) => {
-                                                    const newArr = [...sbEn];
-                                                    newArr[i] = e.currentTarget.textContent || '';
-                                                    setSbEn(newArr);
-                                                }}
-                                            >{sbEn[i]}</div>
-                                        </div>
-                                     </div>
-                                 </div>
-                             ))}
+                         <div className="border border-white/10 rounded-2xl overflow-hidden bg-slate-900/40">
+                             <table className="w-full text-left border-collapse table-fixed">
+                                 <thead>
+                                     <tr className="bg-white/5 border-b border-white/10">
+                                         <th className="p-3 w-12 text-center text-xs font-bold text-slate-500">#</th>
+                                         <th className="p-3 border-l border-white/10 text-xs font-bold text-slate-500">
+                                            <div className="flex items-center justify-between">
+                                                <span>中文</span>
+                                                <button 
+                                                    onClick={() => handleCopy(sbCn.join('\n'), 'col_cn')}
+                                                    className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white transition-colors"
+                                                    title="复制整列"
+                                                >
+                                                    {copied === 'col_cn' ? <Check size={12}/> : <Copy size={12}/>}
+                                                </button>
+                                            </div>
+                                         </th>
+                                         <th className="p-3 border-l border-white/10 text-xs font-bold text-slate-500">
+                                             <div className="flex items-center justify-between">
+                                                <span>英文</span>
+                                                <button 
+                                                    onClick={() => handleCopy(sbEn.join('\n'), 'col_en')}
+                                                    className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white transition-colors"
+                                                    title="复制整列"
+                                                >
+                                                    {copied === 'col_en' ? <Check size={12}/> : <Copy size={12}/>}
+                                                </button>
+                                            </div>
+                                         </th>
+                                     </tr>
+                                 </thead>
+                                 <tbody className="divide-y divide-white/5">
+                                     {sbCn.map((frame, i) => (
+                                         <tr key={i} className="group hover:bg-white/[0.02]">
+                                             <td className="p-3 text-center text-xs font-mono text-slate-500 bg-black/10">
+                                                 {i + 1}
+                                             </td>
+                                             <td className="p-3 border-l border-white/5 align-top">
+                                                 <div 
+                                                    className="text-xs text-slate-300 outline-none focus:text-white focus:bg-white/5 rounded p-1 transition-all leading-relaxed whitespace-pre-wrap"
+                                                    contentEditable
+                                                    suppressContentEditableWarning
+                                                    onBlur={(e) => {
+                                                        const newArr = [...sbCn];
+                                                        newArr[i] = e.currentTarget.textContent || '';
+                                                        setSbCn(newArr);
+                                                    }}
+                                                 >{frame}</div>
+                                             </td>
+                                             <td className="p-3 border-l border-white/5 align-top">
+                                                 <div 
+                                                    className="text-xs text-slate-400 font-mono outline-none focus:text-white focus:bg-white/5 rounded p-1 transition-all leading-relaxed whitespace-pre-wrap"
+                                                    contentEditable
+                                                    suppressContentEditableWarning
+                                                    onBlur={(e) => {
+                                                        const newArr = [...sbEn];
+                                                        newArr[i] = e.currentTarget.textContent || '';
+                                                        setSbEn(newArr);
+                                                    }}
+                                                 >{sbEn[i]}</div>
+                                             </td>
+                                         </tr>
+                                     ))}
+                                 </tbody>
+                             </table>
                          </div>
                      )}
 
