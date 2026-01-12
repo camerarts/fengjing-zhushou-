@@ -253,8 +253,8 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
         onClick={(e) => { e.stopPropagation(); handleStepClick(stepId); }}
         className={`relative group flex flex-col items-center text-center p-6 w-56 rounded-3xl border cursor-pointer shadow-2xl pb-10
           ${isActive 
-            ? 'bg-slate-800 border-brand-500 ring-2 ring-brand-500/20 shadow-[0_0_50px_rgba(14,165,233,0.15)] z-20 scale-105' 
-            : 'bg-slate-900/80 backdrop-blur-md border-white/10 text-slate-400 hover:border-white/20 hover:bg-slate-800 hover:-translate-y-1 z-10'
+            ? 'bg-slate-800 border-brand-500 ring-2 ring-brand-500/20 shadow-[0_0_50px_rgba(14,165,233,0.15)] z-20' 
+            : 'bg-slate-900/80 backdrop-blur-md border-white/10 text-slate-400 hover:border-white/20 hover:bg-slate-800 z-10'
           }`}
       >
         {/* Status Dot */}
@@ -453,7 +453,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             
             {/* INPUT EDITOR */}
             {activeStep === 'input' && (
-                <div className="h-full flex flex-col animate-fade-in">
+                <div className="h-full flex flex-col">
                     <p className="text-sm text-slate-400 mb-4">
                         输入您的视频创意、剧情大纲或视觉风格，AI 将自动拆解为 9 个关键帧。
                     </p>
