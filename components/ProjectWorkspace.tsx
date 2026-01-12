@@ -72,8 +72,9 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             // Auto navigate to the furthest empty step
             if (!p.creativePlan) setActiveStep('input');
             else if (p.storyboardZh.length === 0) setActiveStep('storyboard');
-            else if (!p.grid3x3Zh) setActiveStep('grid');
+            // SWAPPED: Check negative (now step 3) before grid (now step 4)
             else if (!p.negativeImage) setActiveStep('negative');
+            else if (!p.grid3x3Zh) setActiveStep('grid');
             else setActiveStep('split');
             
             if (!p.creativePlan || p.storyboardZh.length === 0) {
@@ -631,26 +632,27 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             
             {/* Parallel Modules Container */}
             <div className="flex flex-col gap-12 justify-center">
-                {/* 3. Grid (Top Branch) */}
+                
+                {/* 3. Negative (Top Branch - was 4) */}
                 <CanvasNode 
                     id={3} 
-                    stepId="grid" 
-                    label="视觉网格" 
-                    desc="3x3 提示词" 
-                    icon={Grid} 
-                    isDone={!!gridCn} 
-                    onGenerate={handleGenerateGrid}
-                />
-                
-                {/* 4. Negative (Bottom Branch) */}
-                <CanvasNode 
-                    id={4} 
                     stepId="negative" 
                     label="底片 (锚点图)" 
                     desc="单张环境/光影设定图" 
                     icon={Film} 
                     isDone={!!negativeImg}
                     onGenerate={handleGenerateNegativeImage}
+                />
+
+                {/* 4. Grid (Bottom Branch - was 3) */}
+                <CanvasNode 
+                    id={4} 
+                    stepId="grid" 
+                    label="视觉网格" 
+                    desc="3x3 提示词" 
+                    icon={Grid} 
+                    isDone={!!gridCn} 
+                    onGenerate={handleGenerateGrid}
                 />
             </div>
             
