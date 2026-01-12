@@ -167,8 +167,8 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
   // --- Canvas Interaction Handlers ---
 
   const handleWheel = (e: React.WheelEvent) => {
-    // Zoom only when Shift is pressed
-    if (!e.shiftKey) return;
+    // Zoom only when Option (Alt) is pressed
+    if (!e.altKey) return;
 
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     setViewState(prev => {
