@@ -138,7 +138,7 @@ const Layout: React.FC<LayoutProps> = ({
         </div>
         
         {isWorkspaceView ? (
-             <div className="flex-1 relative w-full h-full overflow-hidden animate-fade-in">
+             <div className="flex-1 relative w-full h-full overflow-hidden">
                  {children}
              </div>
         ) : (

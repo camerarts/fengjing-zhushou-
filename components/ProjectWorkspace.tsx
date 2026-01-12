@@ -243,7 +243,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
       <div 
         onMouseDown={(e) => e.stopPropagation()} // Prevent pan start when interacting with node
         onClick={(e) => { e.stopPropagation(); handleStepClick(stepId); }}
-        className={`relative group flex flex-col items-center text-center p-6 w-56 rounded-3xl border transition-all duration-300 cursor-pointer shadow-2xl pb-10
+        className={`relative group flex flex-col items-center text-center p-6 w-56 rounded-3xl border cursor-pointer shadow-2xl pb-10
           ${isActive 
             ? 'bg-slate-800 border-brand-500 ring-2 ring-brand-500/20 shadow-[0_0_50px_rgba(14,165,233,0.15)] z-20 scale-105' 
             : 'bg-slate-900/80 backdrop-blur-md border-white/10 text-slate-400 hover:border-white/20 hover:bg-slate-800 hover:-translate-y-1 z-10'
@@ -363,12 +363,12 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
 
       {/* Main Canvas Area (Transformed) */}
       <div 
-        className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none transition-transform duration-75 ease-out will-change-transform"
+        className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none will-change-transform"
         style={{
             transform: `translate(${viewState.x}px, ${viewState.y}px) scale(${viewState.scale})`
         }}
       >
-          <div className="flex items-center gap-2 animate-fade-in pointer-events-auto">
+          <div className="flex items-center gap-2 pointer-events-auto">
             <CanvasNode 
                 id={1} 
                 stepId="input" 
