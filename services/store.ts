@@ -104,8 +104,12 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
 
     // --- 智能错误诊断 ---
     // 针对 "no such table" 错误提供明确的开发指引
-    if (typeof errorMsg === 'string' && errorMsg.includes('no such table')) {
-        errorMsg = `数据库表尚未初始化。\n请在终端运行：\nnpx wrangler d1 execute storyboard-db --local --file=./migrations/0001_init.sql`;
+    if (typeof errorMsg === 'string') {
+        if (errorMsg.includes('no such table')) {
+             errorMsg = `数据库表尚未初始化。\n系统正在尝试自动修复，请重试。\n如果问题持续，请运行：\nnpx wrangler d1 execute storyboard-db --local --file=./migrations/0001_init.sql`;
+        } else if (errorMsg.includes('Database binding') || errorMsg.includes('DB') || errorMsg.includes('wrangler.toml')) {
+             errorMsg = "严重错误：数据库绑定 (Binding) 丢失。\n1. 请检查 wrangler.toml 是否有语法错误。\n2. 确保 database_id 已填写正确。\n3. 如果是线上环境，请在 Cloudflare Pages 设置中重新绑定 D1 变量 'DB'。";
+        }
     }
     // ------------------
 
@@ -113,15 +117,9 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
     if (res.status === 401) errorMsg = "登录已过期或未授权";
     if (res.status === 404 && !errorMsg.includes('no such table')) errorMsg = "请求的资源未找到";
     
-    if (res.status === 500) {
-        if (!errorMsg.includes('数据库表尚未初始化')) {
-             // 检查是否是 D1 绑定丢失导致的错误
-             if (errorMsg.includes('Database binding') || errorMsg.includes('wrangler.toml')) {
-                 errorMsg = "环境配置错误：数据库未绑定。\n请在 Cloudflare Pages 设置中添加 D1 绑定 (变量名: DB)，或修复 wrangler.toml 中的 ID。";
-             } else {
-                 errorMsg = `服务器内部错误: ${errorMsg}`;
-             }
-        }
+    // 500 错误兜底
+    if (res.status === 500 && !errorMsg.includes('严重错误') && !errorMsg.includes('数据库表')) {
+         errorMsg = `服务器内部错误: ${errorMsg}`;
     }
 
     throw new ApiError(errorMsg, res.status, traceId);
