@@ -3,7 +3,7 @@ import { Project } from '../types';
 import { getProjectById, saveProject, getSystemPrompt } from '../services/store';
 import { generateStoryboardContent, generate3x3GridInstructions } from '../services/geminiService';
 import { GRID_PREFIX_CN, GRID_PREFIX_EN } from '../constants';
-import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, Maximize2, Minus, Plus as PlusIcon, RotateCcw, Play } from 'lucide-react';
+import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, ChevronLeft, Maximize2, Minus, Plus as PlusIcon, RotateCcw, Play } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 
 interface WorkspaceProps {
@@ -24,6 +24,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
   // Navigation State
   const [activeStep, setActiveStep] = useState<Step>('input');
   const [isPanelOpen, setIsPanelOpen] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false); // New state for sidebar expansion
 
   // Canvas View State
   const [viewState, setViewState] = useState({ x: 0, y: 0, scale: 1 });
@@ -405,13 +406,27 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
       </div>
 
       {/* Right Drawer Panel (Overlay) */}
-      {/* Width increased from 350px to 420px */}
+      {/* Width increased from 350px to 420px (default), 840px (expanded) */}
       <div 
         onMouseDown={e => e.stopPropagation()} // Prevent events from bubbling to canvas
         onClick={(e) => e.stopPropagation()} 
-        className={`absolute top-0 right-0 h-full w-full md:w-[420px] bg-slate-900/95 backdrop-blur-2xl border-l border-white/10 shadow-2xl transition-transform duration-500 ease-out z-40 flex flex-col
-          ${isPanelOpen ? 'translate-x-0' : 'translate-x-full'}`}
+        className={`absolute top-0 right-0 h-full w-full bg-slate-900/95 backdrop-blur-2xl border-l border-white/10 shadow-2xl transition-all duration-500 ease-out z-40 flex flex-col
+          ${isPanelOpen ? 'translate-x-0' : 'translate-x-full'}
+          ${isExpanded ? 'md:w-[840px]' : 'md:w-[420px]'}
+        `}
       >
+         {/* Expand Toggle Handle (Visible when panel is open) */}
+         <button
+            onClick={(e) => {
+                e.stopPropagation();
+                setIsExpanded(!isExpanded);
+            }}
+            className="absolute left-0 top-1/2 -translate-x-full -translate-y-1/2 py-4 px-1 bg-slate-900 border-y border-l border-white/10 rounded-l-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shadow-[-5px_0_15px_rgba(0,0,0,0.2)] z-50 flex items-center justify-center"
+            title={isExpanded ? "收起面板" : "展开面板 (2x)"}
+         >
+             {isExpanded ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+         </button>
+
          {/* Panel Header */}
          <div className="h-16 flex items-center justify-between px-6 border-b border-white/5 bg-white/5 shrink-0">
              <div className="flex items-center gap-2 overflow-hidden">
