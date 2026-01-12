@@ -103,22 +103,19 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
     }
 
     // --- 智能错误诊断 ---
-    // 针对 "no such table" 错误提供明确的开发指引
     if (typeof errorMsg === 'string') {
-        if (errorMsg.includes('no such table')) {
-             errorMsg = `数据库表尚未初始化。\n系统正在尝试自动修复，请重试。\n如果问题持续，请运行：\nnpx wrangler d1 execute storyboard-db --local --file=./migrations/0001_init.sql`;
-        } else if (errorMsg.includes('Database binding') || errorMsg.includes('DB') || errorMsg.includes('wrangler.toml')) {
-             errorMsg = "严重错误：数据库绑定 (Binding) 丢失。\n1. 请检查 wrangler.toml 是否有语法错误。\n2. 确保 database_id 已填写正确。\n3. 如果是线上环境，请在 Cloudflare Pages 设置中重新绑定 D1 变量 'DB'。";
+        if (errorMsg.includes('KV binding') || errorMsg.includes('KV namespace') || errorMsg.includes('wrangler.toml')) {
+             errorMsg = "严重错误：KV 数据库绑定丢失。\n1. 请进入 Cloudflare Pages -> Settings -> Functions。\n2. 确保添加了 KV Namespace Binding。\n3. 变量名称(Variable name)必须完全一致为 'KV' (大写)。\n4. 设置完成后，请务必 Retry deployment (重新部署)。";
         }
     }
     // ------------------
 
     // 4.1 处理常见 HTTP 错误码
     if (res.status === 401) errorMsg = "登录已过期或未授权";
-    if (res.status === 404 && !errorMsg.includes('no such table')) errorMsg = "请求的资源未找到";
+    if (res.status === 404) errorMsg = "请求的资源未找到";
     
     // 500 错误兜底
-    if (res.status === 500 && !errorMsg.includes('严重错误') && !errorMsg.includes('数据库表')) {
+    if (res.status === 500 && !errorMsg.includes('严重错误')) {
          errorMsg = `服务器内部错误: ${errorMsg}`;
     }
 
