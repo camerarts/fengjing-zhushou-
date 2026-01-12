@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { getProjects, deleteProject } from '../services/store';
 import { Project } from '../types';
-import { Clock, FolderOpen, Trash2, Search, Plus, Loader2 } from 'lucide-react';
+import { Clock, FolderOpen, Trash2, Search, Loader2 } from 'lucide-react';
 
 interface ProjectListProps {
   onOpenProject: (id: string) => void;
@@ -81,19 +81,6 @@ const ProjectList: React.FC<ProjectListProps> = ({ onOpenProject, onCreateProjec
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
-          {/* Add New Card (Optional visual shortcut) */}
-          {onCreateProject && (
-              <div 
-                onClick={onCreateProject}
-                className="group bg-brand-500/5 border border-brand-500/20 border-dashed hover:bg-brand-500/10 hover:border-brand-500/40 rounded-3xl p-6 cursor-pointer transition-all flex flex-col items-center justify-center h-56"
-              >
-                  <div className="w-12 h-12 rounded-full bg-brand-500/20 text-brand-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-                      <Plus size={24} />
-                  </div>
-                  <span className="font-semibold text-brand-200">新建项目</span>
-              </div>
-          )}
-
           {filtered.map(project => (
             <div 
               key={project.id}
