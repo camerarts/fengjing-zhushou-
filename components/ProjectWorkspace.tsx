@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Project } from '../types';
 import { getProjectById, saveProject, getSystemPrompt } from '../services/store';
 import { generateStoryboardContent, generate3x3GridInstructions } from '../services/geminiService';
 import { GRID_PREFIX_CN, GRID_PREFIX_EN } from '../constants';
-import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, Maximize2 } from 'lucide-react';
+import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, Maximize2, Minus, Plus as PlusIcon, RotateCcw } from 'lucide-react';
 
 interface WorkspaceProps {
   projectId: string;
@@ -20,6 +20,15 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
   // Navigation State
   const [activeStep, setActiveStep] = useState<Step>('input');
   const [isPanelOpen, setIsPanelOpen] = useState(true);
+
+  // Canvas View State
+  const [viewState, setViewState] = useState({ x: 0, y: 0, scale: 1 });
+  const [isDragging, setIsDragging] = useState(false);
+  
+  // Refs for drag logic to avoid stale closures in event handlers
+  const isDraggingRef = useRef(false);
+  const lastMousePosRef = useRef({ x: 0, y: 0 });
+  const dragStartPosRef = useRef({ x: 0, y: 0 });
 
   // Local state for edits
   const [plan, setPlan] = useState('');
@@ -52,7 +61,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
             }
             else {
                  setActiveStep('grid');
-                 setIsPanelOpen(false); // Default close if done? Or maybe open to show result. Let's keep open if last step.
+                 setIsPanelOpen(false); 
             }
         }
     });
@@ -140,6 +149,61 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
     setIsPanelOpen(true);
   };
 
+  // --- Canvas Interaction Handlers ---
+
+  const handleWheel = (e: React.WheelEvent) => {
+    // Only zoom if not scrolling inside a panel (simple check: if target is part of canvas)
+    // Here we attach handler to main wrapper, so it should be fine.
+    // e.stopPropagation(); // Optional: might block page scroll if overflow hidden isn't enough
+    
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setViewState(prev => {
+        const newScale = Math.min(Math.max(prev.scale * delta, 0.2), 3.0);
+        return { ...prev, scale: newScale };
+    });
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    // Left click only for panning
+    if (e.button !== 0) return;
+    
+    isDraggingRef.current = true;
+    setIsDragging(true);
+    lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+    dragStartPosRef.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDraggingRef.current) return;
+    
+    const dx = e.clientX - lastMousePosRef.current.x;
+    const dy = e.clientY - lastMousePosRef.current.y;
+    
+    lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+    
+    setViewState(prev => ({
+        ...prev,
+        x: prev.x + dx,
+        y: prev.y + dy
+    }));
+  };
+
+  const handleMouseUp = (e: React.MouseEvent) => {
+    isDraggingRef.current = false;
+    setIsDragging(false);
+
+    // Check if it was a click (not a drag)
+    const moveDist = Math.hypot(e.clientX - dragStartPosRef.current.x, e.clientY - dragStartPosRef.current.y);
+    if (moveDist < 5) {
+        // It's a click on the background -> Close Panel
+        setIsPanelOpen(false);
+    }
+  };
+
+  const handleResetView = () => {
+    setViewState({ x: 0, y: 0, scale: 1 });
+  };
+
   if (!project) return <div className="p-8 text-center text-slate-400 flex items-center justify-center h-full"><Loader2 className="animate-spin mr-2"/>正在加载项目数据...</div>;
 
   // Render Step Node (Canvas Item)
@@ -154,6 +218,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
     const isActive = activeStep === stepId && isPanelOpen;
     return (
       <div 
+        onMouseDown={(e) => e.stopPropagation()} // Prevent pan start when interacting with node
         onClick={(e) => { e.stopPropagation(); handleStepClick(stepId); }}
         className={`relative group flex flex-col items-center text-center p-6 w-56 rounded-3xl border transition-all duration-300 cursor-pointer shadow-2xl
           ${isActive 
@@ -187,18 +252,26 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
   );
 
   return (
-    <div className="h-full w-full relative overflow-hidden bg-slate-950 font-sans" onClick={() => setIsPanelOpen(false)}>
+    <div 
+        className={`h-full w-full relative overflow-hidden bg-slate-950 font-sans ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onWheel={handleWheel}
+    >
       
-      {/* Background with Grid */}
-      <div className="absolute inset-0 z-0 opacity-20 pointer-events-none" 
+      {/* Dynamic Background with Grid */}
+      <div className="absolute inset-0 z-0 opacity-20 pointer-events-none transition-all duration-75 ease-out will-change-[background-position,background-size]" 
            style={{ 
              backgroundImage: 'radial-gradient(#475569 1px, transparent 1px)', 
-             backgroundSize: '24px 24px' 
+             backgroundPosition: `${viewState.x}px ${viewState.y}px`,
+             backgroundSize: `${24 * viewState.scale}px ${24 * viewState.scale}px` 
            }}>
       </div>
 
-      {/* Top Bar */}
-      <div className="absolute top-0 left-0 w-full z-20 px-8 py-6 flex items-center justify-between pointer-events-none">
+      {/* Top Bar (Overlay) */}
+      <div className="absolute top-0 left-0 w-full z-30 px-8 py-6 flex items-center justify-between pointer-events-none" onMouseDown={e => e.stopPropagation()}>
         <div className="pointer-events-auto">
            <h2 className="text-2xl font-black text-white tracking-tight drop-shadow-md">{project.name}</h2>
            <p className="text-xs text-slate-500 font-mono flex items-center gap-1">
@@ -217,9 +290,43 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
         </div>
       </div>
 
-      {/* Main Canvas Area (Centered & Fixed at Bottom Layer) */}
-      <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-          <div className="flex items-center gap-2 animate-fade-in pointer-events-auto scale-75 md:scale-100">
+      {/* View Controls (Bottom Left) */}
+      <div className="absolute bottom-6 left-6 z-30 flex flex-col gap-2 pointer-events-auto" onMouseDown={e => e.stopPropagation()}>
+          <div className="flex flex-col bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-lg overflow-hidden shadow-xl">
+             <button 
+                onClick={() => setViewState(p => ({...p, scale: Math.min(p.scale + 0.1, 3.0)}))}
+                className="p-2 text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+             >
+                <PlusIcon size={16} />
+             </button>
+             <div className="h-px bg-white/5 w-full"></div>
+             <button 
+                onClick={() => setViewState(p => ({...p, scale: Math.max(p.scale - 0.1, 0.2)}))}
+                className="p-2 text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+             >
+                <Minus size={16} />
+             </button>
+          </div>
+          <button 
+            onClick={handleResetView}
+            className="p-2 bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors shadow-xl"
+            title="重置视图"
+          >
+             <RotateCcw size={16} />
+          </button>
+          <div className="text-[10px] font-mono text-slate-500 bg-slate-900/50 px-2 py-1 rounded border border-white/5 text-center">
+             {Math.round(viewState.scale * 100)}%
+          </div>
+      </div>
+
+      {/* Main Canvas Area (Transformed) */}
+      <div 
+        className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none transition-transform duration-75 ease-out will-change-transform"
+        style={{
+            transform: `translate(${viewState.x}px, ${viewState.y}px) scale(${viewState.scale})`
+        }}
+      >
+          <div className="flex items-center gap-2 animate-fade-in pointer-events-auto">
             <CanvasNode 
                 id={1} 
                 stepId="input" 
@@ -251,6 +358,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
 
       {/* Right Drawer Panel (Overlay) */}
       <div 
+        onMouseDown={e => e.stopPropagation()} // Prevent events from bubbling to canvas
         onClick={(e) => e.stopPropagation()} 
         className={`absolute top-0 right-0 h-full w-full md:w-[500px] bg-slate-900/95 backdrop-blur-2xl border-l border-white/10 shadow-2xl transition-transform duration-500 ease-out z-40 flex flex-col
           ${isPanelOpen ? 'translate-x-0' : 'translate-x-full'}`}
@@ -434,6 +542,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = ({ projectId }) => {
       {!isPanelOpen && (
         <button 
             onClick={() => setIsPanelOpen(true)}
+            onMouseDown={e => e.stopPropagation()} // Stop propagation to avoid drag
             className="absolute right-6 top-1/2 -translate-y-1/2 p-3 bg-brand-600 hover:bg-brand-500 text-white rounded-full shadow-lg shadow-brand-900/30 transition-all hover:scale-110 z-20 animate-fade-in"
         >
             <ChevronRight size={24} className="rotate-180" />
