@@ -249,16 +249,35 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
         let refBase64 = negativeImg;
         if (!negativeImg.startsWith('data:')) {
             try {
-                const fetchRes = await fetch(negativeImg);
-                const blob = await fetchRes.blob();
-                refBase64 = await new Promise<string>((resolve) => {
-                    const reader = new FileReader();
-                    reader.readAsDataURL(blob);
-                    reader.onloadend = () => resolve(reader.result as string);
+                // Determine if we need to bypass cache or handle CORS specially
+                // Add timestamp to force fresh request
+                const urlObj = new URL(negativeImg);
+                urlObj.searchParams.set('t', Date.now().toString()); 
+                
+                // Explicitly use CORS mode and omit credentials for public R2 buckets
+                const fetchRes = await fetch(urlObj.toString(), { 
+                    mode: 'cors', 
+                    credentials: 'omit',
+                    headers: { 'Cache-Control': 'no-cache' }
                 });
-            } catch (err) {
+                
+                if (!fetchRes.ok) {
+                    throw new Error(`HTTP Error ${fetchRes.status}: ${fetchRes.statusText}`);
+                }
+                
+                const blob = await fetchRes.blob();
+                refBase64 = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                         if (typeof reader.result === 'string') resolve(reader.result);
+                         else reject(new Error("Empty result from FileReader"));
+                    };
+                    reader.onerror = () => reject(new Error("FileReader error"));
+                    reader.readAsDataURL(blob);
+                });
+            } catch (err: any) {
                 console.error("Failed to fetch reference image for conversion", err);
-                throw new Error("无法读取底片参考图，请检查网络或重新上传。");
+                throw new Error(`无法读取底片参考图。请确保您的 R2 Bucket 已配置 CORS 允许跨域访问。\n错误信息: ${err.message}`);
             }
         }
 
@@ -308,16 +327,22 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
     try {
         const sourceImage = gridCompositeImg;
         const img = new Image();
-        img.crossOrigin = "Anonymous";
+        img.crossOrigin = "Anonymous"; // Critical for CORS
         
         // Add timestamp to force fresh request if it's a URL
-        if (sourceImage.startsWith('data:')) {
-            img.src = sourceImage;
-        } else {
-            img.src = `${sourceImage}${sourceImage.includes('?') ? '&' : '?'}t=${Date.now()}`;
+        let srcUrl = sourceImage;
+        if (!sourceImage.startsWith('data:')) {
+             const urlObj = new URL(sourceImage);
+             urlObj.searchParams.set('t', Date.now().toString());
+             srcUrl = urlObj.toString();
         }
+        img.src = srcUrl;
 
-        await img.decode();
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = () => reject(new Error("Image load failed (CORS restriction or network error)"));
+        });
+
         const pieceWidth = img.width / 3;
         const pieceHeight = img.height / 3;
         
@@ -331,8 +356,12 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             for (let row = 0; row < 3; row++) {
                 for (let col = 0; col < 3; col++) {
                     ctx.clearRect(0, 0, pieceWidth, pieceHeight);
-                    ctx.drawImage(img, col * pieceWidth, row * pieceHeight, pieceWidth, pieceHeight, 0, 0, pieceWidth, pieceHeight);
-                    splitBase64s.push(canvas.toDataURL('image/jpeg', 0.95));
+                    try {
+                        ctx.drawImage(img, col * pieceWidth, row * pieceHeight, pieceWidth, pieceHeight, 0, 0, pieceWidth, pieceHeight);
+                        splitBase64s.push(canvas.toDataURL('image/jpeg', 0.95));
+                    } catch (e) {
+                        throw new Error("Canvas Tainted: CORS not configured on image source.");
+                    }
                 }
             }
         }

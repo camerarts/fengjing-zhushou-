@@ -91,8 +91,17 @@ const NegativeEditor: React.FC<NegativeEditorProps> = ({
 
             {negativeImg ? (
                 <div className="w-full h-full relative group">
-                    {/* Removed crossOrigin="anonymous" for display */}
-                    <img src={negativeImg} alt="Negative" className="w-full h-full object-contain" />
+                    {/* Added crossOrigin="anonymous" to detect CORS issues visually */}
+                    <img 
+                        src={negativeImg} 
+                        alt="Negative" 
+                        crossOrigin="anonymous" 
+                        className="w-full h-full object-contain" 
+                        onError={(e) => {
+                            // Optional: could add visual indicator of error here
+                            // e.currentTarget.style.opacity = '0.5';
+                        }}
+                    />
                     <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity gap-3">
                         <button 
                             onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
