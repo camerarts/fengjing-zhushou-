@@ -21,7 +21,8 @@ const KeyManagement: React.FC = () => {
   const [savingModel, setSavingModel] = useState(false);
 
   const fetchData = async () => {
-    setLoading(true);
+    // Only set loading true if we don't have data (first load)
+    if (keys.length === 0 && models.length === 0) setLoading(true);
     const [kData, mData] = await Promise.all([getApiKeys(), getModels()]);
     setKeys(kData);
     setModels(mData);
@@ -50,8 +51,7 @@ const KeyManagement: React.FC = () => {
     };
     
     await saveApiKey(newItem);
-    const kData = await getApiKeys();
-    setKeys(kData);
+    await fetchData(); // Refresh list from cache/server
     setNewKey('');
     setSavingKey(false);
   };
@@ -59,16 +59,14 @@ const KeyManagement: React.FC = () => {
   const handleDeleteKey = async (id: string) => {
     if (window.confirm("确认删除此 API 密钥？")) {
       await deleteApiKey(id);
-      const kData = await getApiKeys();
-      setKeys(kData);
+      await fetchData();
     }
   };
 
   const handleSetDefaultKey = async (keyItem: KeyItem) => {
     const updated = { ...keyItem, isDefault: true };
     await saveApiKey(updated);
-    const kData = await getApiKeys();
-    setKeys(kData);
+    await fetchData();
   };
 
   // --- Model Handlers ---
@@ -93,8 +91,7 @@ const KeyManagement: React.FC = () => {
     };
 
     await saveModel(newItem);
-    const mData = await getModels();
-    setModels(mData);
+    await fetchData(); // Refresh list
     setNewModelId('');
     setSavingModel(false);
   };
@@ -102,16 +99,14 @@ const KeyManagement: React.FC = () => {
   const handleDeleteModel = async (id: string) => {
     if (window.confirm("确认删除此模型配置？")) {
       await deleteModel(id);
-      const mData = await getModels();
-      setModels(mData);
+      await fetchData();
     }
   };
 
   const handleSetDefaultModel = async (modelItem: ModelItem) => {
     const updated = { ...modelItem, isDefault: true };
     await saveModel(updated);
-    const mData = await getModels();
-    setModels(mData);
+    await fetchData();
   };
 
   // Filter models by type
@@ -124,7 +119,7 @@ const KeyManagement: React.FC = () => {
             <Icon size={14} /> {typeLabel}
         </h4>
         {list.map(m => (
-        <div key={m.id} className="group bg-slate-800/40 backdrop-blur-lg border border-white/5 hover:border-white/10 rounded-2xl p-4 flex items-center justify-between transition-all hover:bg-slate-800/60 shadow-md">
+        <div key={m.id} className="group bg-slate-800/40 backdrop-blur-md border border-white/5 hover:border-white/10 rounded-2xl p-4 flex items-center justify-between transition-all hover:bg-slate-800/60 shadow-md">
             <div className="flex items-center gap-4">
                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-inner transition-colors ${m.isDefault ? 'bg-purple-500/20 text-purple-400 border border-purple-500/20' : 'bg-slate-900/50 text-slate-600 border border-white/5'}`}>
                     {m.isDefault ? <CheckCircle size={18} /> : <Cpu size={18} className="opacity-30" />}
@@ -180,7 +175,7 @@ const KeyManagement: React.FC = () => {
               </div>
               
               {/* Add Key Form */}
-              <form onSubmit={handleAddKey} className="bg-slate-900/60 backdrop-blur-xl p-5 rounded-3xl border border-white/10 shadow-xl">
+              <form onSubmit={handleAddKey} className="bg-slate-900/60 backdrop-blur-md p-5 rounded-3xl border border-white/10 shadow-xl">
                   <div className="space-y-4">
                       <div>
                             <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">添加新密钥</label>
@@ -214,12 +209,12 @@ const KeyManagement: React.FC = () => {
 
               {/* Key List */}
               <div className="space-y-3">
-                {loading ? (
+                {loading && keys.length === 0 ? (
                    <div className="flex items-center justify-center py-6 text-slate-500"><Loader2 className="animate-spin mr-2"/> 加载中...</div>
                 ) : (
                     <>
                     {keys.map(k => (
-                    <div key={k.id} className="group bg-slate-800/40 backdrop-blur-lg border border-white/5 hover:border-white/10 rounded-2xl p-4 flex items-center justify-between transition-all hover:bg-slate-800/60 shadow-md">
+                    <div key={k.id} className="group bg-slate-800/40 backdrop-blur-md border border-white/5 hover:border-white/10 rounded-2xl p-4 flex items-center justify-between transition-all hover:bg-slate-800/60 shadow-md">
                         <div className="flex items-center gap-4">
                             <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-inner transition-colors ${k.isDefault ? 'bg-brand-500/20 text-brand-400 border border-brand-500/20' : 'bg-slate-900/50 text-slate-600 border border-white/5'}`}>
                                 {k.isDefault ? <CheckCircle size={18} /> : <div className="w-4 h-4 rounded-full border-2 border-current opacity-30" />}
@@ -269,10 +264,18 @@ const KeyManagement: React.FC = () => {
               </div>
 
               {/* Add Model Form */}
-              <form onSubmit={handleAddModel} className="bg-slate-900/60 backdrop-blur-xl p-5 rounded-3xl border border-white/10 shadow-xl">
+              <form onSubmit={handleAddModel} className="bg-slate-900/60 backdrop-blur-md p-5 rounded-3xl border border-white/10 shadow-xl">
                   <div className="space-y-4">
                       <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">添加模型</label>
+                            <div className="flex justify-between items-center mb-2">
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                    添加 {newModelType === 'text' ? '文本' : '图像'} 模型
+                                </label>
+                                <span className="text-[10px] text-slate-500">
+                                    {newModelType === 'text' ? '用于分镜脚本' : '用于画面生成'}
+                                </span>
+                            </div>
+                            
                             <div className="flex gap-2">
                                 <div className="flex-1">
                                     <input 
@@ -280,7 +283,7 @@ const KeyManagement: React.FC = () => {
                                         value={newModelId}
                                         onChange={e => setNewModelId(e.target.value)}
                                         className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-purple-500/50 focus:bg-black/40 focus:outline-none transition-all placeholder:text-slate-600 font-mono"
-                                        placeholder="例如: gemini-3-flash"
+                                        placeholder={newModelType === 'text' ? "例如: gemini-3-flash" : "例如: gemini-2.5-flash-image"}
                                     />
                                 </div>
                                 <div className="flex bg-black/20 rounded-xl p-1 border border-white/10 shrink-0">
@@ -316,7 +319,7 @@ const KeyManagement: React.FC = () => {
 
               {/* Model Lists */}
               <div className="space-y-6">
-                {loading ? (
+                {loading && models.length === 0 ? (
                    <div className="flex items-center justify-center py-6 text-slate-500"><Loader2 className="animate-spin mr-2"/> 加载中...</div>
                 ) : (
                     <>

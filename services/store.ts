@@ -5,6 +5,32 @@ const STORAGE_KEYS = {
   USER: 'sb_user',
 };
 
+// --- In-Memory Cache ---
+const cache: {
+    projects: Project[] | null;
+    keys: KeyItem[] | null;
+    models: ModelItem[] | null;
+    prompts: Record<string, string>;
+} = {
+    projects: null,
+    keys: null,
+    models: null,
+    prompts: {}
+};
+
+const clearCache = (key?: keyof typeof cache) => {
+    if (key && key !== 'prompts') {
+        cache[key] = null;
+    } else if (key === 'prompts') {
+        cache.prompts = {};
+    } else {
+        cache.projects = null;
+        cache.keys = null;
+        cache.models = null;
+        cache.prompts = {};
+    }
+};
+
 // --- User / Auth (Keep LocalStorage for Session) ---
 export const login = (): User => {
   localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(MOCK_USER));
@@ -13,6 +39,7 @@ export const login = (): User => {
 
 export const logout = () => {
   localStorage.removeItem(STORAGE_KEYS.USER);
+  clearCache();
 };
 
 export const getCurrentUser = (): User | null => {
@@ -44,7 +71,7 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
   const startTime = Date.now();
   
   // 3.5 日志：请求发起
-  console.log(`[API Req] ${method} ${endpoint}`, options.body ? '(with payload)' : '');
+  // console.log(`[API Req] ${method} ${endpoint}`, options.body ? '(with payload)' : '');
 
   let res: Response;
   try {
@@ -89,7 +116,7 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
   }
 
   // 3.5 日志：响应结果
-  console.log(`[API Res] ${res.status} ${method} ${endpoint} - ${duration}ms`, res.ok ? 'OK' : 'FAIL');
+  // console.log(`[API Res] ${res.status} ${method} ${endpoint} - ${duration}ms`, res.ok ? 'OK' : 'FAIL');
 
   if (!res.ok) {
     let errorMsg = res.statusText;
@@ -127,8 +154,11 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
 
 // --- Projects (Async) ---
 export const getProjects = async (): Promise<Project[]> => {
+  if (cache.projects) return cache.projects;
   try {
-    return await fetchAPI<Project[]>('/projects');
+    const data = await fetchAPI<Project[]>('/projects');
+    cache.projects = data;
+    return data;
   } catch (e) {
     console.error("Failed to fetch projects", e);
     return [];
@@ -136,6 +166,7 @@ export const getProjects = async (): Promise<Project[]> => {
 };
 
 export const saveProject = async (project: Project, forceCreate: boolean = false) => {
+  clearCache('projects'); // Invalidate cache
   if (forceCreate) {
      return await fetchAPI('/projects', {
       method: 'POST',
@@ -168,10 +199,16 @@ export const saveProject = async (project: Project, forceCreate: boolean = false
 };
 
 export const deleteProject = async (id: string) => {
+  clearCache('projects');
   await fetchAPI(`/projects/${id}`, { method: 'DELETE' });
 };
 
 export const getProjectById = async (id: string): Promise<Project | undefined> => {
+  // Try to find in cache first
+  if (cache.projects) {
+    const p = cache.projects.find(p => p.id === id);
+    if (p) return p;
+  }
   try {
     return await fetchAPI<Project>(`/projects/${id}`);
   } catch (e) {
@@ -181,15 +218,19 @@ export const getProjectById = async (id: string): Promise<Project | undefined> =
 
 // --- API Keys (Async) ---
 export const getApiKeys = async (): Promise<KeyItem[]> => {
+  if (cache.keys) return cache.keys;
   try {
-    return await fetchAPI<KeyItem[]>('/keys');
+    const data = await fetchAPI<KeyItem[]>('/keys');
+    cache.keys = data;
+    return data;
   } catch (e) {
     return [];
   }
 };
 
 export const saveApiKey = async (keyItem: KeyItem) => {
-  const keys = await getApiKeys();
+  clearCache('keys');
+  const keys = await getApiKeys(); // This might still fetch if cache was cleared immediately above, but that's intended logic for safety
   const exists = keys.find(k => k.id === keyItem.id);
   
   if (exists) {
@@ -206,6 +247,7 @@ export const saveApiKey = async (keyItem: KeyItem) => {
 };
 
 export const deleteApiKey = async (id: string) => {
+  clearCache('keys');
   await fetchAPI(`/keys/${id}`, { method: 'DELETE' });
 };
 
@@ -221,15 +263,20 @@ export const getDefaultKey = async (): Promise<string | null> => {
 
 // --- Models (Async) ---
 export const getModels = async (): Promise<ModelItem[]> => {
+  if (cache.models) return cache.models;
   try {
-    return await fetchAPI<ModelItem[]>('/models');
+    const data = await fetchAPI<ModelItem[]>('/models');
+    cache.models = data;
+    return data;
   } catch (e) {
     return [];
   }
 };
 
 export const saveModel = async (modelItem: ModelItem) => {
-  const models = await getModels();
+  clearCache('models');
+  const models = await getModels(); // Re-fetch or logic needs to handle exists check. For simplicity, we can trust the ID.
+  // Actually, better to optimistically check.
   const exists = models.find(m => m.id === modelItem.id);
 
   if (exists) {
@@ -246,6 +293,7 @@ export const saveModel = async (modelItem: ModelItem) => {
 };
 
 export const deleteModel = async (id: string) => {
+  clearCache('models');
   await fetchAPI(`/models/${id}`, { method: 'DELETE' });
 };
 
@@ -265,15 +313,19 @@ export const getDefaultModel = async (type: ModelType = 'text'): Promise<string 
 
 // --- Prompts (Async) ---
 export const getSystemPrompt = async (moduleKey: string = 'storyboard_generate'): Promise<string> => {
+  if (cache.prompts[moduleKey]) return cache.prompts[moduleKey];
   try {
     const res = await fetchAPI<PromptConfig | null>(`/prompts?moduleKey=${moduleKey}`);
-    return res ? res.content : DEFAULT_SYSTEM_PROMPT;
+    const content = res ? res.content : DEFAULT_SYSTEM_PROMPT;
+    cache.prompts[moduleKey] = content;
+    return content;
   } catch (e) {
     return DEFAULT_SYSTEM_PROMPT;
   }
 };
 
 export const saveSystemPrompt = async (moduleKey: string, content: string) => {
+  cache.prompts[moduleKey] = content; // Optimistic update
   await fetchAPI('/prompts', {
     method: 'POST',
     body: JSON.stringify({
