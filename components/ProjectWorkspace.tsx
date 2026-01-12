@@ -3,7 +3,7 @@ import { Project } from '../types';
 import { getProjectById, saveProject, getSystemPrompt, uploadImage } from '../services/store';
 import { generateStoryboardContent, generateImageContent } from '../services/geminiService';
 import { GRID_PREFIX_CN, GRID_PREFIX_EN, DEFAULT_NEGATIVE_PROMPT } from '../constants';
-import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, ChevronLeft, Maximize2, Minus, Plus as PlusIcon, RotateCcw, Film, LayoutGrid, Upload, Download, Scissors, Wand2, Cloud } from 'lucide-react';
+import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, ChevronLeft, Maximize2, Minus, Plus as PlusIcon, RotateCcw, Film, LayoutGrid, Upload, Download, Scissors, Wand2, Cloud, Clipboard } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 
 interface WorkspaceProps {
@@ -177,10 +177,14 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
   };
 
   const handleGenerateNegativeImage = async () => {
-    if (!gridEn && !plan) {
-         return alert("无法生成图片：缺少网格指令或创意方案。");
+    // Modify Requirement: We now use the PLAN or Storyboard Summary, NOT the grid instruction.
+    // The goal is to generate ONE single image (9:16), not a 3x3 grid.
+    if (!plan && sbEn.length === 0) {
+         return alert("无法生成图片：缺少创意方案或分镜描述。");
     }
-    const promptToUse = gridEn || plan;
+    
+    // Use the Plan first, or join the first few storyboard frames as a style reference
+    const promptToUse = plan || sbEn.slice(0, 3).join(', ');
 
     setLoading(true);
     setLoadingStep('negative');
@@ -213,35 +217,62 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
     }
   };
 
+  const handleUploadLogic = async (base64: string) => {
+    setLoading(true);
+    setLoadingStep('negative'); 
+    setUploadingStatus("正在上传...");
+    
+    try {
+        const imageUrl = await uploadImage(base64);
+        setNegativeImg(imageUrl);
+        
+        if(project) {
+            const updated = { ...project, negativeImage: imageUrl, updatedAt: Date.now() };
+            await saveProject(updated);
+            setProject(updated);
+        }
+    } catch (err: any) {
+        alert("上传失败：" + err.message);
+    } finally {
+        setLoading(false);
+        setLoadingStep('');
+        setUploadingStatus(null);
+    }
+  };
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-        setLoading(true);
-        setLoadingStep('negative'); // reuse spinner on negative step
-        setUploadingStatus("正在上传...");
-
         const reader = new FileReader();
         reader.onload = async (ev) => {
             const base64 = ev.target?.result as string;
-            try {
-                // Upload to R2
-                const imageUrl = await uploadImage(base64);
-                setNegativeImg(imageUrl);
-                
-                if(project) {
-                    const updated = { ...project, negativeImage: imageUrl, updatedAt: Date.now() };
-                    await saveProject(updated);
-                    setProject(updated);
-                }
-            } catch (err: any) {
-                alert("图片上传失败：" + err.message);
-            } finally {
-                setLoading(false);
-                setLoadingStep('');
-                setUploadingStatus(null);
-            }
+            await handleUploadLogic(base64);
         };
         reader.readAsDataURL(file);
+    }
+  };
+
+  const handlePasteImage = async () => {
+    try {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+            // Look for image types
+            const type = item.types.find(t => t.startsWith('image/'));
+            if (type) {
+                const blob = await item.getType(type);
+                const reader = new FileReader();
+                reader.onload = async (ev) => {
+                    const base64 = ev.target?.result as string;
+                    await handleUploadLogic(base64);
+                };
+                reader.readAsDataURL(blob);
+                return; // Only process the first image found
+            }
+        }
+        alert("剪切板中没有找到图片。");
+    } catch (err) {
+        console.error("Paste error:", err);
+        alert("无法访问剪切板，请检查浏览器权限设置。");
     }
   };
 
@@ -551,8 +582,8 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             <CanvasNode 
                 id={4} 
                 stepId="negative" 
-                label="底片" 
-                desc="上传/生成 3x3 原图" 
+                label="底片 (锚点图)" 
+                desc="单张环境/光影设定图" 
                 icon={Film} 
                 isDone={!!negativeImg}
                 onGenerate={handleGenerateNegativeImage}
@@ -611,7 +642,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                     {activeStep === 'input' && '创意方案输入'}
                     {activeStep === 'storyboard' && '分镜脚本 (9帧)'}
                     {activeStep === 'grid' && '视觉网格 (3x3)'}
-                    {activeStep === 'negative' && '底片管理'}
+                    {activeStep === 'negative' && '底片 (锚点图) 管理'}
                     {activeStep === 'split' && '分镜切片 (9张)'}
                  </span>
              </div>
@@ -798,21 +829,21 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             {activeStep === 'negative' && (
                 <div className="h-full flex flex-col animate-fade-in">
                     <p className="text-sm text-slate-400 mb-4">
-                        请上传使用上述提示词生成的 3x3 网格原图 (底片)，或使用 AI 直接生成。<br/>
+                        生成或上传单张<span className="text-white font-bold">锚点图 (9:16)</span>，用于固定相机的参数、光线与房间几何结构。<br/>
                         <span className="text-xs text-brand-400">图片将自动上传至 R2 云端存储。</span>
                     </p>
 
                     {/* Generate Button Row */}
-                    <div className="mb-4">
+                    <div className="mb-4 space-y-2">
                          <button 
                              onClick={handleGenerateNegativeImage}
-                             disabled={loading || (!gridEn && !plan)}
+                             disabled={loading || (!plan && sbEn.length === 0)}
                              className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 text-white py-3 rounded-xl text-sm font-bold shadow-lg shadow-purple-900/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.01]"
                          >
                              {loading && loadingStep === 'negative' ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
-                             AI 生成底片 (Beta)
+                             AI 生成锚点图 (单张)
                          </button>
-                         {(!gridEn && !plan) && <p className="text-[10px] text-red-400 mt-1 text-center">需先生成网格指令或输入创意方案</p>}
+                         {(!plan && sbEn.length === 0) && <p className="text-[10px] text-red-400 mt-1 text-center">需先输入创意方案</p>}
                     </div>
                     
                     <div 
@@ -853,6 +884,17 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                             </div>
                         )}
                     </div>
+                    
+                    {/* Paste Button */}
+                    <button 
+                        onClick={handlePasteImage}
+                        disabled={loading}
+                        className="mt-3 w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2.5 rounded-xl text-xs font-bold transition-all border border-white/10"
+                        title="粘贴剪切板中的图片"
+                    >
+                        <Clipboard size={14} />
+                        粘贴剪切板图片
+                    </button>
 
                     <button 
                         onClick={() => { setActiveStep('split'); handleSplitImage(); }}
