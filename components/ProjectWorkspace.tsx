@@ -156,7 +156,8 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
     setLoadingStep('grid');
 
     try {
-      const cnInstructions = sbCn.map((t, i) => `${i + 1}. ${t}`).join('\n');
+      // 在每个分镜前增加固定镜头指令
+      const cnInstructions = sbCn.map((t, i) => `${i + 1}. 【固定镜头，拍摄角度固定不变】${t}`).join('\n');
       const enInstructions = sbEn.map((t, i) => `${i + 1}. ${t}`).join('\n');
       
       const finalCn = `${GRID_PREFIX_CN}\n${cnInstructions}`;
@@ -637,7 +638,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                 <CanvasNode 
                     id={3} 
                     stepId="negative" 
-                    label="底片 (锚点图)" 
+                    label="底片" 
                     desc="单张环境/光影设定图" 
                     icon={Film} 
                     isDone={!!negativeImg}
@@ -708,7 +709,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                     {activeStep === 'input' && '创意方案输入'}
                     {activeStep === 'storyboard' && '分镜脚本 (9帧)'}
                     {activeStep === 'grid' && '视觉网格 (3x3)'}
-                    {activeStep === 'negative' && '底片 (锚点图) 管理'}
+                    {activeStep === 'negative' && '底片管理'}
                     {activeStep === 'split' && '分镜切片 (9张)'}
                  </span>
              </div>
