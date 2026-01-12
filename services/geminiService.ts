@@ -100,5 +100,44 @@ export const generateStoryboardContent = async (
   }
 };
 
-// Frontend-only grid generation no longer requires an API call here.
-// The previous function is removed to enforce frontend processing.
+export const generateImageContent = async (
+    prompt: string,
+    systemPrompt: string,
+    userApiKey?: string
+): Promise<string> => {
+    const client = await getClient(userApiKey);
+    
+    // Use the specific image generation model as per instructions
+    const model = 'gemini-2.5-flash-image';
+
+    try {
+        const response = await client.models.generateContent({
+            model: model,
+            contents: prompt,
+            config: {
+                systemInstruction: systemPrompt,
+                // responseMimeType is NOT supported for nano banana series
+                // responseSchema is NOT supported for nano banana series
+            }
+        });
+
+        // The output response may contain both image and text parts; iterate to find image.
+        if (response.candidates?.[0]?.content?.parts) {
+            for (const part of response.candidates[0].content.parts) {
+                if (part.inlineData && part.inlineData.data) {
+                    const base64EncodeString = part.inlineData.data;
+                    return `data:image/png;base64,${base64EncodeString}`;
+                }
+            }
+        }
+        
+        throw new Error("生成的响应中未包含图片数据");
+
+    } catch (error: any) {
+        console.error("Gemini Image Generation Error:", error);
+         if (error.message?.includes("403") || error.message?.includes("API_KEY")) {
+            throw new Error("API 密钥无效或无访问权限。请检查您的密钥配置。");
+         }
+         throw error;
+    }
+};

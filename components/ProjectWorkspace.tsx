@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Project } from '../types';
 import { getProjectById, saveProject, getSystemPrompt } from '../services/store';
-import { generateStoryboardContent } from '../services/geminiService';
-import { GRID_PREFIX_CN, GRID_PREFIX_EN } from '../constants';
-import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, ChevronLeft, Maximize2, Minus, Plus as PlusIcon, RotateCcw, Film, LayoutGrid, Upload, Download, Scissors } from 'lucide-react';
+import { generateStoryboardContent, generateImageContent } from '../services/geminiService';
+import { GRID_PREFIX_CN, GRID_PREFIX_EN, DEFAULT_NEGATIVE_PROMPT } from '../constants';
+import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, ChevronLeft, Maximize2, Minus, Plus as PlusIcon, RotateCcw, Film, LayoutGrid, Upload, Download, Scissors, Wand2 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 
 interface WorkspaceProps {
@@ -121,7 +121,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
     setLoadingStep('storyboard');
     
     try {
-      const systemPrompt = await getSystemPrompt();
+      const systemPrompt = await getSystemPrompt('storyboard_generate');
       const res = await generateStoryboardContent(plan, systemPrompt);
       setSbCn(res.cn);
       setSbEn(res.en);
@@ -172,6 +172,38 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
     } finally {
       setLoading(false);
       setLoadingStep('');
+    }
+  };
+
+  const handleGenerateNegativeImage = async () => {
+    if (!gridEn && !plan) {
+         return alert("无法生成图片：缺少网格指令或创意方案。");
+    }
+    // Use Grid EN prompt if available, otherwise Creative Plan
+    const promptToUse = gridEn || plan;
+
+    setLoading(true);
+    setLoadingStep('negative');
+
+    try {
+        const systemPrompt = await getSystemPrompt('negative_generate');
+        // Use default if empty (though store usually handles this, double check)
+        const finalSystemPrompt = systemPrompt || DEFAULT_NEGATIVE_PROMPT;
+        
+        const base64Image = await generateImageContent(promptToUse, finalSystemPrompt);
+        
+        setNegativeImg(base64Image);
+        
+        if(project) {
+            const updated = { ...project, negativeImage: base64Image, updatedAt: Date.now() };
+            await saveProject(updated);
+            setProject(updated);
+        }
+    } catch (e: any) {
+        alert("图片生成失败：" + e.message);
+    } finally {
+        setLoading(false);
+        setLoadingStep('');
     }
   };
 
@@ -484,7 +516,8 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                 label="底片" 
                 desc="上传/生成 3x3 原图" 
                 icon={Film} 
-                isDone={!!negativeImg} 
+                isDone={!!negativeImg}
+                onGenerate={handleGenerateNegativeImage}
             />
             <Connector />
             <CanvasNode 
@@ -718,8 +751,21 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             {activeStep === 'negative' && (
                 <div className="h-full flex flex-col animate-fade-in">
                     <p className="text-sm text-slate-400 mb-4">
-                        请上传使用上述提示词生成的 3x3 网格原图 (底片)。
+                        请上传使用上述提示词生成的 3x3 网格原图 (底片)，或使用 AI 直接生成。
                     </p>
+
+                    {/* Generate Button Row */}
+                    <div className="mb-4">
+                         <button 
+                             onClick={handleGenerateNegativeImage}
+                             disabled={loading || (!gridEn && !plan)}
+                             className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 text-white py-3 rounded-xl text-sm font-bold shadow-lg shadow-purple-900/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.01]"
+                         >
+                             {loading && loadingStep === 'negative' ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
+                             AI 生成底片 (Beta)
+                         </button>
+                         {(!gridEn && !plan) && <p className="text-[10px] text-red-400 mt-1 text-center">需先生成网格指令或输入创意方案</p>}
+                    </div>
                     
                     <div 
                         className={`flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-3xl transition-all relative overflow-hidden
@@ -738,12 +784,12 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                         {negativeImg ? (
                             <div className="w-full h-full relative group">
                                 <img src={negativeImg} alt="Negative" className="w-full h-full object-contain" />
-                                <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity gap-3">
                                     <button 
-                                        onClick={() => fileInputRef.current?.click()}
+                                        onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
                                         className="bg-white text-black px-4 py-2 rounded-full font-bold text-sm hover:scale-105 transition-transform"
                                     >
-                                        更换图片
+                                        本地上传
                                     </button>
                                 </div>
                             </div>

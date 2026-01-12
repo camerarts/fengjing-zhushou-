@@ -3,6 +3,13 @@ export const DEFAULT_SYSTEM_PROMPT = `你是一位专业的视频导演和分镜
 每一帧的描述都需要具有画面感、具体细节，并适合作为 AI 图像生成的提示词。
 请保持各帧之间风格和角色的一致性。`;
 
+export const DEFAULT_NEGATIVE_PROMPT = `You are an expert storyboard artist. 
+Generate a high-quality 3x3 grid storyboard image based on the user's prompt.
+The image MUST be a grid of 3 columns and 3 rows.
+Each individual cell in the grid must have a 9:16 aspect ratio (vertical).
+Ensure consistent character appearance and artistic style across all 9 panels.
+Do not add any text overlays or borders between frames if possible.`;
+
 export const GRID_PREFIX_CN = `做一张3*3的分镜图，每张单独的分镜图宽高比是9:16的竖版，保持每张图片的机位和拍摄角度不变。只根据以下指示去改变图片：`;
 
 export const GRID_PREFIX_EN = `Make a 3*3 storyboard, and the aspect ratio of each individual storyboard is 9:16 vertical, keeping the camera position and shooting angle of each picture unchanged. Follow the instructions below to change the picture only:`;
