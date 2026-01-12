@@ -3,7 +3,7 @@ import { Project } from '../types';
 import { getProjectById, saveProject, getSystemPrompt, uploadImage } from '../services/store';
 import { generateStoryboardContent, generateImageContent } from '../services/geminiService';
 import { GRID_PREFIX_CN, GRID_PREFIX_EN, DEFAULT_NEGATIVE_PROMPT } from '../constants';
-import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, ChevronLeft, Maximize2, Minus, Plus as PlusIcon, RotateCcw, Film, LayoutGrid, Upload, Download, Scissors, Wand2, Cloud, Clipboard } from 'lucide-react';
+import { Save, Zap, Grid, Copy, Check, Loader2, RotateCw, LayoutTemplate, FileText, ArrowRight, X, ChevronRight, ChevronLeft, Maximize2, Minus, Plus as PlusIcon, RotateCcw, Film, LayoutGrid, Upload, Download, Scissors, Wand2, Cloud, Clipboard, AlertTriangle } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 
 interface WorkspaceProps {
@@ -177,13 +177,10 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
   };
 
   const handleGenerateNegativeImage = async () => {
-    // Modify Requirement: We now use the PLAN or Storyboard Summary, NOT the grid instruction.
-    // The goal is to generate ONE single image (9:16), not a 3x3 grid.
     if (!plan && sbEn.length === 0) {
          return alert("无法生成图片：缺少创意方案或分镜描述。");
     }
     
-    // Use the Plan first, or join the first few storyboard frames as a style reference
     const promptToUse = plan || sbEn.slice(0, 3).join(', ');
 
     setLoading(true);
@@ -196,9 +193,15 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
         // 1. Gen Image (Base64)
         const base64Image = await generateImageContent(promptToUse, finalSystemPrompt);
         
-        // 2. Upload to R2
+        // 2. Upload to R2 (Try/Catch Fallback)
         setUploadingStatus("正在上传到云端存储...");
-        const imageUrl = await uploadImage(base64Image);
+        let imageUrl = base64Image;
+        try {
+            imageUrl = await uploadImage(base64Image);
+        } catch (uploadErr: any) {
+            console.warn("Upload failed, using local base64", uploadErr);
+            // Fallback: use Base64
+        }
         setUploadingStatus(null);
         
         setNegativeImg(imageUrl);
@@ -209,7 +212,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             setProject(updated);
         }
     } catch (e: any) {
-        alert("图片生成或上传失败：" + e.message);
+        alert("图片生成失败：" + e.message);
         setUploadingStatus(null);
     } finally {
         setLoading(false);
@@ -223,7 +226,12 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
     setUploadingStatus("正在上传...");
     
     try {
-        const imageUrl = await uploadImage(base64);
+        let imageUrl = base64;
+        try {
+             imageUrl = await uploadImage(base64);
+        } catch (uploadErr: any) {
+             console.warn("Upload failed, using local base64", uploadErr);
+        }
         setNegativeImg(imageUrl);
         
         if(project) {
@@ -232,7 +240,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             setProject(updated);
         }
     } catch (err: any) {
-        alert("上传失败：" + err.message);
+        alert("处理失败：" + err.message);
     } finally {
         setLoading(false);
         setLoadingStep('');
@@ -256,7 +264,6 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
     try {
         const items = await navigator.clipboard.read();
         for (const item of items) {
-            // Look for image types
             const type = item.types.find(t => t.startsWith('image/'));
             if (type) {
                 const blob = await item.getType(type);
@@ -266,7 +273,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                     await handleUploadLogic(base64);
                 };
                 reader.readAsDataURL(blob);
-                return; // Only process the first image found
+                return;
             }
         }
         alert("剪切板中没有找到图片。");
@@ -283,14 +290,13 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
 
     try {
         const img = new Image();
-        img.crossOrigin = "Anonymous"; // Crucial for canvas export if image is from R2
+        img.crossOrigin = "Anonymous";
         img.src = negativeImg;
         await img.decode();
 
         const pieceWidth = img.width / 3;
         const pieceHeight = img.height / 3;
         
-        // We need to collect all 9 blobs/base64 first
         const splitBase64s: string[] = [];
 
         const canvas = document.createElement('canvas');
@@ -302,24 +308,27 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             for (let row = 0; row < 3; row++) {
                 for (let col = 0; col < 3; col++) {
                     ctx.clearRect(0, 0, pieceWidth, pieceHeight);
-                    // Draw slice
                     ctx.drawImage(img, col * pieceWidth, row * pieceHeight, pieceWidth, pieceHeight, 0, 0, pieceWidth, pieceHeight);
                     splitBase64s.push(canvas.toDataURL('image/jpeg', 0.95));
                 }
             }
         }
         
-        // Batch upload to R2
-        setUploadingStatus(`正在上传 9 张切片 (0/9)...`);
-        const uploadPromises = splitBase64s.map(async (b64, idx) => {
-             const url = await uploadImage(b64);
-             setUploadingStatus(`正在上传 9 张切片 (${idx + 1}/9)...`);
-             return url;
-        });
+        // Upload with fallback
+        setUploadingStatus(`正在处理切片...`);
+        const newSplitUrls: string[] = [];
+        
+        for(let i=0; i<splitBase64s.length; i++) {
+            try {
+                const url = await uploadImage(splitBase64s[i]);
+                newSplitUrls.push(url);
+            } catch(e) {
+                console.warn(`Slice ${i} upload failed, using base64`);
+                newSplitUrls.push(splitBase64s[i]);
+            }
+        }
 
-        const newSplitUrls = await Promise.all(uploadPromises);
         setUploadingStatus(null);
-
         setSplitImgs(newSplitUrls);
         
         if(project) {
@@ -329,7 +338,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
         }
     } catch (e) {
         console.error(e);
-        alert("图片切分失败 (跨域问题或网络错误)");
+        alert("图片切分失败");
     } finally {
         setLoading(false);
         setLoadingStep('');
@@ -345,9 +354,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
   // --- Canvas Interaction Handlers ---
 
   const handleWheel = (e: React.WheelEvent) => {
-    // Zoom only when Option (Alt) is pressed
     if (!e.altKey) return;
-
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     setViewState(prev => {
         const newScale = Math.min(Math.max(prev.scale * delta, 0.2), 3.0);
@@ -356,9 +363,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    // Left click only for panning
     if (e.button !== 0) return;
-    
     isDraggingRef.current = true;
     setIsDragging(true);
     lastMousePosRef.current = { x: e.clientX, y: e.clientY };
@@ -367,27 +372,17 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isDraggingRef.current) return;
-    
     const dx = e.clientX - lastMousePosRef.current.x;
     const dy = e.clientY - lastMousePosRef.current.y;
-    
     lastMousePosRef.current = { x: e.clientX, y: e.clientY };
-    
-    setViewState(prev => ({
-        ...prev,
-        x: prev.x + dx,
-        y: prev.y + dy
-    }));
+    setViewState(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
     isDraggingRef.current = false;
     setIsDragging(false);
-
-    // Check if it was a click (not a drag)
     const moveDist = Math.hypot(e.clientX - dragStartPosRef.current.x, e.clientY - dragStartPosRef.current.y);
     if (moveDist < 5) {
-        // It's a click on the background -> Close Panel
         setIsPanelOpen(false);
     }
   };
@@ -422,7 +417,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
 
     return (
       <div 
-        onMouseDown={(e) => e.stopPropagation()} // Prevent pan start when interacting with node
+        onMouseDown={(e) => e.stopPropagation()} 
         onClick={(e) => { e.stopPropagation(); handleStepClick(stepId); }}
         className={`relative group flex flex-col items-center text-center p-6 w-56 rounded-3xl border cursor-pointer shadow-2xl pb-10 transition-transform duration-300
           ${isActive 
@@ -430,12 +425,10 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
             : 'bg-slate-900/80 backdrop-blur-md border-white/10 text-slate-400 hover:border-white/20 hover:bg-slate-800 hover:-translate-y-1 z-10'
           }`}
       >
-        {/* Number Badge (Top Left) */}
         <div className="absolute -top-3 -left-3 w-8 h-8 bg-red-600 text-white rounded-full flex items-center justify-center font-bold text-sm shadow-lg border-2 border-slate-950 z-30 font-mono">
             {id}
         </div>
 
-        {/* Status Dot */}
         {isDone && <div className="absolute -top-2 -right-2 bg-green-500 text-white p-1 rounded-full shadow-lg"><Check size={12} strokeWidth={3} /></div>}
         
         <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 transition-colors shadow-inner border border-white/5
@@ -446,7 +439,6 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
         <div className={`font-bold text-lg tracking-tight mb-1 ${isActive ? 'text-white' : 'text-slate-200'}`}>{label}</div>
         <div className="text-xs text-slate-500 leading-tight mb-2">{desc}</div>
         
-        {/* Generate Button (Bottom Right) */}
         {onGenerate && (
             <button
                 onClick={(e) => {
@@ -473,6 +465,9 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
         <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-slate-700 rounded-full"></div>
     </div>
   );
+
+  // Helper to check if using base64 (fallback)
+  const isBase64 = (str: string) => str.startsWith('data:');
 
   return (
     <div 
@@ -542,7 +537,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
           </div>
       </div>
 
-      {/* Main Canvas Area (Transformed) */}
+      {/* Main Canvas Area */}
       <div 
         className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none will-change-transform"
         style={{
@@ -600,16 +595,16 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
           </div>
       </div>
 
-      {/* Right Drawer Panel (Overlay) */}
+      {/* Right Drawer Panel */}
       <div 
-        onMouseDown={e => e.stopPropagation()} // Prevent events from bubbling to canvas
+        onMouseDown={e => e.stopPropagation()} 
         onClick={(e) => e.stopPropagation()} 
         className={`absolute top-0 right-0 h-full w-full bg-slate-900/95 backdrop-blur-2xl border-l border-white/10 shadow-2xl transition-all duration-500 ease-out z-40 flex flex-col
           ${isPanelOpen ? 'translate-x-0' : 'translate-x-full'}
           ${isExpanded ? 'md:w-[840px]' : 'md:w-[420px]'}
         `}
       >
-         {/* Uploading Status Overlay in Panel */}
+         {/* Uploading Status Overlay */}
          {uploadingStatus && (
              <div className="absolute inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-center animate-fade-in">
                  <Loader2 size={32} className="animate-spin text-brand-500 mb-3" />
@@ -618,7 +613,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
              </div>
          )}
 
-         {/* Expand Toggle Handle */}
+         {/* Expand Toggle */}
          <button
             onClick={(e) => {
                 e.stopPropagation();
@@ -633,11 +628,6 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
          {/* Panel Header */}
          <div className="h-16 flex items-center justify-between px-6 border-b border-white/5 bg-white/5 shrink-0">
              <div className="flex items-center gap-2 overflow-hidden">
-                 {activeStep === 'input' && <LayoutTemplate size={18} className="text-brand-400 shrink-0"/>}
-                 {activeStep === 'storyboard' && <FileText size={18} className="text-brand-400 shrink-0"/>}
-                 {activeStep === 'grid' && <Grid size={18} className="text-brand-400 shrink-0"/>}
-                 {activeStep === 'negative' && <Film size={18} className="text-brand-400 shrink-0"/>}
-                 {activeStep === 'split' && <LayoutGrid size={18} className="text-brand-400 shrink-0"/>}
                  <span className="font-bold text-white tracking-tight truncate text-sm">
                     {activeStep === 'input' && '创意方案输入'}
                     {activeStep === 'storyboard' && '分镜脚本 (9帧)'}
@@ -872,8 +862,9 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                                         本地上传 (覆盖)
                                     </button>
                                 </div>
-                                <div className="absolute top-2 right-2 bg-black/50 backdrop-blur rounded px-2 py-1 text-[10px] text-white flex items-center gap-1">
-                                    <Cloud size={10} /> 已存云端
+                                <div className={`absolute top-2 right-2 backdrop-blur rounded px-2 py-1 text-[10px] text-white flex items-center gap-1 ${isBase64(negativeImg) ? 'bg-orange-500/80' : 'bg-black/50'}`}>
+                                    {isBase64(negativeImg) ? <AlertTriangle size={10} /> : <Cloud size={10} />}
+                                    {isBase64(negativeImg) ? '未同步云端' : '已存云端'}
                                 </div>
                             </div>
                         ) : (
@@ -940,6 +931,11 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                                         >
                                             <Download size={12} />
                                         </a>
+                                        {isBase64(img) && (
+                                            <div className="absolute top-1 right-1 text-orange-500 bg-black/50 rounded-full p-0.5" title="未上传">
+                                                <AlertTriangle size={10} />
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>
