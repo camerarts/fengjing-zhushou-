@@ -20,6 +20,19 @@ interface WorkspaceProps {
   projectId?: string;
 }
 
+// Utility to convert blob to base64 string
+const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+             if (typeof reader.result === 'string') resolve(reader.result);
+             else reject(new Error("Empty result from FileReader"));
+        };
+        reader.onerror = () => reject(new Error("FileReader error"));
+        reader.readAsDataURL(blob);
+    });
+};
+
 const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
   const { id } = useParams<{ id: string }>();
   const projectId = id;
@@ -76,6 +89,38 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
         }
     });
   }, [projectId]);
+
+  // Robust Fetch Logic
+  const fetchImageAsBase64 = async (url: string): Promise<string> => {
+      // If it's already data url, return as is
+      if (url.startsWith('data:')) return url;
+
+      // 1. Try Direct Fetch (Fastest if CORS is set up)
+      try {
+          const urlObj = new URL(url);
+          urlObj.searchParams.set('t', Date.now().toString()); 
+          // Remove custom headers to avoid strict preflight checks
+          const res = await fetch(urlObj.toString(), { mode: 'cors', credentials: 'omit' });
+          if (res.ok) {
+              const blob = await res.blob();
+              return await blobToBase64(blob);
+          }
+      } catch (e) {
+          console.warn("Direct fetch failed, attempting proxy...", e);
+      }
+
+      // 2. Try Proxy Fetch (Fallback)
+      try {
+          // Use the server-side proxy which adds correct CORS headers
+          const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`;
+          const res = await fetch(proxyUrl);
+          if (!res.ok) throw new Error(`Proxy status: ${res.status}`);
+          const blob = await res.blob();
+          return await blobToBase64(blob);
+      } catch (e: any) {
+          throw new Error(`图片读取失败: ${e.message}。请检查网络或 R2 Bucket 配置。`);
+      }
+  };
 
   const handleSave = async () => {
     if (!project) return;
@@ -245,41 +290,8 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
       setUploadingStatus("正在生成 3x3 大图...");
 
       try {
-        // 1. Get Base64 of the reference image
-        let refBase64 = negativeImg;
-        if (!negativeImg.startsWith('data:')) {
-            try {
-                // Determine if we need to bypass cache or handle CORS specially
-                // Add timestamp to force fresh request
-                const urlObj = new URL(negativeImg);
-                urlObj.searchParams.set('t', Date.now().toString()); 
-                
-                // Explicitly use CORS mode and omit credentials for public R2 buckets
-                const fetchRes = await fetch(urlObj.toString(), { 
-                    mode: 'cors', 
-                    credentials: 'omit',
-                    headers: { 'Cache-Control': 'no-cache' }
-                });
-                
-                if (!fetchRes.ok) {
-                    throw new Error(`HTTP Error ${fetchRes.status}: ${fetchRes.statusText}`);
-                }
-                
-                const blob = await fetchRes.blob();
-                refBase64 = await new Promise<string>((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                         if (typeof reader.result === 'string') resolve(reader.result);
-                         else reject(new Error("Empty result from FileReader"));
-                    };
-                    reader.onerror = () => reject(new Error("FileReader error"));
-                    reader.readAsDataURL(blob);
-                });
-            } catch (err: any) {
-                console.error("Failed to fetch reference image for conversion", err);
-                throw new Error(`无法读取底片参考图。请确保您的 R2 Bucket 已配置 CORS 允许跨域访问。\n错误信息: ${err.message}`);
-            }
-        }
+        // 1. Robustly get Base64 of the reference image
+        const refBase64 = await fetchImageAsBase64(negativeImg);
 
         // 2. Call Gemini
         const newGridBase64 = await generateImageFromReference(gridEn, refBase64);
@@ -325,22 +337,16 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
     setUploadingStatus("正在切割图片...");
 
     try {
-        const sourceImage = gridCompositeImg;
+        // Robustly fetch the image first to get a clean base64 string
+        // This bypasses Canvas CORS Tainting issues because loading a data-uri is safe
+        const sourceBase64 = await fetchImageAsBase64(gridCompositeImg);
+
         const img = new Image();
-        img.crossOrigin = "Anonymous"; // Critical for CORS
-        
-        // Add timestamp to force fresh request if it's a URL
-        let srcUrl = sourceImage;
-        if (!sourceImage.startsWith('data:')) {
-             const urlObj = new URL(sourceImage);
-             urlObj.searchParams.set('t', Date.now().toString());
-             srcUrl = urlObj.toString();
-        }
-        img.src = srcUrl;
+        img.src = sourceBase64;
 
         await new Promise((resolve, reject) => {
             img.onload = resolve;
-            img.onerror = () => reject(new Error("Image load failed (CORS restriction or network error)"));
+            img.onerror = () => reject(new Error("Image load failed for slicing"));
         });
 
         const pieceWidth = img.width / 3;
@@ -360,7 +366,7 @@ const ProjectWorkspace: React.FC<WorkspaceProps> = () => {
                         ctx.drawImage(img, col * pieceWidth, row * pieceHeight, pieceWidth, pieceHeight, 0, 0, pieceWidth, pieceHeight);
                         splitBase64s.push(canvas.toDataURL('image/jpeg', 0.95));
                     } catch (e) {
-                        throw new Error("Canvas Tainted: CORS not configured on image source.");
+                        throw new Error("Canvas Tainted: Failed to slice image due to security restrictions.");
                     }
                 }
             }

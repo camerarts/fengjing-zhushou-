@@ -93,6 +93,36 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const method = request.method;
 
   try {
+    // --- IMAGE PROXY (Bypass CORS) ---
+    if (resource === 'proxy') {
+        const targetUrl = url.searchParams.get('url');
+        if (!targetUrl) return errorResponse('Missing url param', 400);
+        
+        try {
+            const resp = await fetch(targetUrl, {
+                headers: {
+                    'User-Agent': 'Storyboard-Assistant-Proxy/1.0'
+                }
+            });
+            if (!resp.ok) return errorResponse(`Upstream error: ${resp.status}`, 502);
+
+            // Forward content type
+            const contentType = resp.headers.get('content-type') || 'application/octet-stream';
+            
+            // Create headers with CORS
+            const headers = new Headers(corsHeaders);
+            headers.set('Content-Type', contentType);
+            headers.set('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+
+            return new Response(resp.body, {
+                status: 200,
+                headers: headers
+            });
+        } catch (e: any) {
+             return errorResponse(`Proxy failed: ${e.message}`, 500);
+        }
+    }
+
     // --- IMAGE UPLOAD (R2) ---
     if (resource === 'upload' && method === 'POST') {
       if (!env.BUCKET) {
